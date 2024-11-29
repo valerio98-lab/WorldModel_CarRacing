@@ -26,9 +26,8 @@ class Encoder(nn.Module):
         sigma = torch.exp(0.5 * self.fc_sigma(x)) ##to keep sigma > 0
 
         ##riparametrization trick
-        epsilon = torch.rand_like(sigma)
+        epsilon = torch.rand_like(sigma).to(self.device)
         z = mu + sigma * epsilon
-        print(self.device)
 
 
         return z, mu, sigma
@@ -54,7 +53,7 @@ class Decoder(nn.Module):
         x = F.relu(self.deconv1(x))
         x = F.relu(self.deconv2(x))
         x = F.relu(self.deconv3(x))
-        x = F.sigmoid(self.deconv4(x))
+        x = torch.sigmoid(self.deconv4(x))
 
         return x
 
@@ -67,57 +66,63 @@ class VAE(nn.Module):
     
     def forward(self, x):
         z, mu, sigma = self.encoder(x)
-        print(f"{z.shape=}")
         reconstruction = self.decoder(z)
 
         return reconstruction, mu, sigma
 
 
-if __name__ == "__main__": 
-    import gymnasium as gym
-    import torch
-    import torchvision.transforms as T
-    import matplotlib.pyplot as plt
+    def loss_function(self, reconstruction, x, mu, sigma):
+        bce = F.mse_loss(reconstruction, x, reduction='sum')
+        kld = -0.5 * torch.sum(1 + torch.log(sigma**2) - mu**2 - sigma**2)
+        return bce + kld
+
+
+
+# if __name__ == "__main__": 
+#     import gymnasium as gym
+#     import torch
+#     import torchvision.transforms as T
+#     import matplotlib.pyplot as plt
     
-    env = gym.make("CarRacing-v2", render_mode="rgb_array")
-    obs, info = env.reset()
+#     env = gym.make("CarRacing-v2", render_mode="rgb_array")
+#     obs, info = env.reset()
 
-    transform = T.Compose([
-        T.ToTensor(),  # Converti in tensore (C, H, W)
-        T.Resize((64, 64)),  # Ridimensiona a 64x64
-        T.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])  # Normalizza tra -1 e 1
-    ])
-    # plt.title("Osservazione grezza")
-    # plt.imshow(obs)
-    # plt.show()
-    obs_tensor = transform(obs).unsqueeze(0)  # Aggiungi dimensione batch
-    print("Forma del tensore preprocessato:", obs_tensor.shape) 
+#     transform = T.Compose([
+#         T.ToTensor(),  # Converti in tensore (C, H, W)
+#         T.Resize((64, 64)),  # Ridimensiona a 64x64
+#         T.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])  # Normalizza tra -1 e 1
+#     ])
+#     # plt.title("Osservazione grezza")
+#     # plt.imshow(obs)
+#     # plt.show()
+#     obs_tensor = transform(obs).unsqueeze(0)  # Aggiungi dimensione batch
+#     print("Forma del tensore preprocessato:", obs_tensor.shape) 
 
-    latent_dim = 32
-    vae = VAE(obs_tensor.shape[1], latent_dim=latent_dim).to('cuda')
+#     latent_dim = 32
+#     vae = VAE(obs_tensor.shape[1], latent_dim=latent_dim).to('cuda')
 
-    obs, info = env.reset()
+#     obs, info = env.reset()
 
-    for _ in range(10):  # Testa per 100 step
-        obs_tensor = transform(obs).unsqueeze(0).to('cuda') # Preprocessing
-        reconstruction, mu, sigma = vae(obs_tensor)
+#     for _ in range(10):  # Testa per 100 step
+#         obs_tensor = transform(obs).unsqueeze(0).to('cuda') # Preprocessing
+#         reconstruction, mu, sigma = vae(obs_tensor)
 
-        # plt.title("Osservazione originale")
-        # plt.imshow(reconstruction[0].cpu().detach().permute(1, 2, 0).numpy())
-        # plt.show()
-        print("Mu shape:", mu.shape)
-        print("Sigma shape:", sigma.shape)
+#         # plt.title("Osservazione originale")
+#         # plt.imshow(reconstruction[0].cpu().detach().permute(1, 2, 0).numpy())
+#         # plt.show()
+#         print("Mu shape:", mu.shape)
+#         print("Sigma shape:", sigma.shape)
 
-        action = env.action_space.sample()
-        obs, reward, done, truncated, info = env.step(action)
-        obs_tensor.cpu().detach().numpy()
-        if done or truncated:
-            break
+#         action = env.action_space.sample()
+#         obs, reward, done, truncated, info = env.step(action)
+#         obs_tensor.cpu().detach().numpy()
+#         if done or truncated:
+#             break
 
 
-    env.close()
-    vae.to('cpu') # Sposta il modello sulla CPU
-    torch.cuda.empty_cache()  # Libera la memoria della GPU
+#     env.close()
+#     vae.to('cpu') # Sposta il modello sulla CPU
+#     torch.cuda.empty_cache()  # Libera la memoria della GPU
 
 
 

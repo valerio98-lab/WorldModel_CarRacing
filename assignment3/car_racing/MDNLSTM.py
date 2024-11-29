@@ -15,6 +15,7 @@ class LSTM(nn.Module):
         if hidden_state is None:
             hidden_state = (torch.zeros(1, x.size(0), self.hidden_dim).to(x.device),
                             torch.zeros(1, x.size(0), self.hidden_dim).to(x.device))
+        
         x, hidden_state = self.lstm(x, hidden_state)
 
         return x, hidden_state
@@ -28,19 +29,25 @@ class MDN(nn.Module):
         self.action_dim = action_dim
         self.hidden_dim = hidden_dim
         self.num_gaussians = num_gaussians
-        self.alpha = nn.Linear(hidden_dim, num_gaussians)
-        self.sigma = nn.Linear(hidden_dim, num_gaussians * latent_dim)
-        self.mu = nn.Linear(hidden_dim, num_gaussians * latent_dim)
+        self.output_layer = nn.Linear(hidden_dim, num_gaussians * (2 * latent_dim + 1))
     
-    def forward(self, hidden_state):
-        alpha = F.softmax(self.alpha(hidden_state), dim=-1)
-        mu = self.mu(hidden_state)
-        sigma = torch.exp(self.sigma(hidden_state))
 
+    def forward(self, hidden_state):
+        out = self.output_layer(hidden_state)
+        
+        offset = self.num_gaussians + self.num_gaussians * self.latent_dim
+
+        alpha = out[:, :self.num_gaussians]
+        mu = out[:, self.num_gaussians:offset]
+        sigma = out[:, offset:]
+
+        alpha = F.softmax(alpha.view(-1, self.num_gaussians), dim=1)
         mu = mu.view(-1, self.num_gaussians, self.latent_dim)
-        sigma = sigma.view(-1, self.num_gaussians, self.latent_dim)
+        sigma = torch.exp(sigma.view(-1, self.num_gaussians, self.latent_dim))
 
         return alpha, mu, sigma
+
+
 
     def mdn_loss(self, alpha, sigma, mu, target, eps=1e-8):
         target = target.unsqueeze(1).expand_as(mu)
@@ -51,17 +58,22 @@ class MDN(nn.Module):
         loss = -torch.logsumexp(log_alpha + log_prob, dim=1)
         return loss.mean()
 
-class MemoryAndPrediction(nn.Module):
+
+
+class MDNLSTM(nn.Module):
     """ LSTM + MDN"""
     def __init__(self, latent_dim, action_dim, hidden_dim, num_gaussians=5):
-        super(MemoryAndPrediction, self).__init__()
+        super(MDNLSTM, self).__init__()
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.input_dim = latent_dim + action_dim
         self.lstm = LSTM(self.input_dim, hidden_dim)
         self.mdn = MDN(latent_dim, action_dim, hidden_dim, num_gaussians)
 
     def forward(self, latent_vector, action_vector):
-        x = torch.cat((latent_vector, action_vector), dim=-1).unsqueeze(0)
+        x = torch.cat((latent_vector, action_vector), dim=-1)
+
+        x = x.unsqueeze(0) if len(x.shape) == 2 else x
+
         out, hidden_state = self.lstm(x)
         alpha, mu, sigma = self.mdn(out[:, -1, :])
 
@@ -77,7 +89,7 @@ if __name__ == "__main__":
     num_gaussians = 5
 
     # Modello
-    model = MemoryAndPrediction(latent_dim=latent_dim, action_dim=action_dim, hidden_dim=hidden_dim, num_gaussians=num_gaussians)
+    model = MDNLSTM(latent_dim=latent_dim, action_dim=action_dim, hidden_dim=hidden_dim, num_gaussians=num_gaussians)
 
     # Input fittizio
     z_t = torch.randn(1, latent_dim)  # Stato latente corrente
