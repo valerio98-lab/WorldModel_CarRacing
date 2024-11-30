@@ -24,4 +24,5 @@ def load_model(model, optimizer=None, scheduler=None, model_name=None, epoch=Non
         scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
     else:
         model.load_state_dict(torch.load(f'{model_name}.pt'))
+        print(f"Model loaded from {model_name}.pt")
     return model, optimizer, scheduler

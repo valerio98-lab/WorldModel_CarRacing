@@ -19,10 +19,11 @@ class Episode:
 
 
 class CarRacingDataset(Dataset):
-    def __init__(self, episodes=10000, episode_length=100, continuous=False, noise_type=None, mode="frames"):
+    def __init__(self, path, episodes=10000, episode_length=100, continuous=False, noise_type=None, mode="frames"):
         self.env = gym.make(id='CarRacing-v2', continuous=continuous)
         self.episode_length = episode_length
         self.mode = mode
+        self.path = path
         self.episodes = episodes
         self.noise_type = noise_type
         self.transform = transforms.Compose([
@@ -30,16 +31,19 @@ class CarRacingDataset(Dataset):
             transforms.Resize((64, 64)),
             transforms.ToTensor(),
         ])
-
-        self.dataset = self.catch_data()
+        
+        if os.path.exists(self.path):
+            self.dataset = torch.load(self.path)
+            print(f"Dataset loaded from {self.path}")
+        else:
+            directory = os.path.dirname(self.path)
+            filename = os.path.basename(self.path)
+            os.makedirs(directory, exist_ok=True)
+            print(f"Creating dataset {filename}")
+            self.dataset = self.catch_data()
 
 
     def catch_data(self):
-        if os.path.exists('dataset/dataset.pt'):
-            self.dataset = torch.load('dataset/dataset.pt')
-            print("Dataset loaded from dataset.pt")
-            return self.dataset
-        
         data = []
         lengths = []
         for episode in tqdm.tqdm(range(self.episodes)):
@@ -79,8 +83,8 @@ class CarRacingDataset(Dataset):
                     rewards=elem.rewards[:avg]
                 )
             dataset.append(elem)
-        
-        self.save(dataset, 'dataset')
+
+        torch.save(dataset, self.path)
         return dataset
     
     def brownian_noise(self, action):
@@ -88,13 +92,6 @@ class CarRacingDataset(Dataset):
         action = np.clip(action, -1, 1) 
 
         return action
-
-    def save(self, dataset, file_path):
-        os.makedirs(file_path, exist_ok=True)
-        torch.save(dataset, f"{file_path}/dataset.pt")
-        print(f"Dataset saved to {file_path}")
-
-
 
 
     def __len__(self):
