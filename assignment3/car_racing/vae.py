@@ -73,7 +73,9 @@ class VAE(nn.Module):
 
     def loss_function(self, reconstruction, x, mu, sigma):
         bce = F.mse_loss(reconstruction, x, reduction='sum')
-        kld = -0.5 * torch.sum(1 + torch.log(sigma**2) - mu**2 - sigma**2)
+
+        log_sigma = torch.log(sigma + 1e-8)
+        kld = -0.5 * torch.sum(1 + 2 * log_sigma - mu**2 - sigma**2)
         return bce + kld
 
 

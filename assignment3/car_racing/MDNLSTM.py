@@ -41,9 +41,9 @@ class MDN(nn.Module):
         mu = out[:, self.num_gaussians:offset]
         sigma = out[:, offset:]
 
-        alpha = F.softmax(alpha.view(-1, self.num_gaussians), dim=1)
+        alpha = F.softmax(alpha.view(-1, self.num_gaussians), dim=1) + 1e-8
         mu = mu.view(-1, self.num_gaussians, self.latent_dim)
-        sigma = torch.exp(sigma.view(-1, self.num_gaussians, self.latent_dim))
+        sigma = torch.exp(sigma.view(-1, self.num_gaussians, self.latent_dim)) + 1e-8
 
         return alpha, mu, sigma
 
@@ -54,7 +54,7 @@ class MDN(nn.Module):
         m = torch.distributions.Normal(loc=mu, scale=sigma)
         log_prob = m.log_prob(target)
         log_prob = log_prob.sum(dim=2)
-        log_alpha = torch.log(alpha + eps)  # Avoid log(0) disaster
+        log_alpha = torch.log(alpha + eps)  
         loss = -torch.logsumexp(log_alpha + log_prob, dim=1)
         return loss.mean()
 
@@ -69,9 +69,12 @@ class MDNLSTM(nn.Module):
         self.lstm = LSTM(self.input_dim, hidden_dim)
         self.mdn = MDN(latent_dim, action_dim, hidden_dim, num_gaussians)
 
-    def forward(self, latent_vector, action_vector):
-        x = torch.cat((latent_vector, action_vector), dim=-1)
 
+    def forward(self, latent_vector, action_vector):
+        latent_vector = latent_vector.to(self.device)
+        action_vector = action_vector.to(self.device)
+
+        x = torch.cat((latent_vector, action_vector), dim=-1)
         x = x.unsqueeze(0) if len(x.shape) == 2 else x
 
         out, hidden_state = self.lstm(x)
