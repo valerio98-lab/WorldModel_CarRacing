@@ -8,6 +8,10 @@ import tqdm as tqdm
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from dataclasses import dataclass
+from utils import load_model
+from vae import VAE
+
+torch.manual_seed(42)
 
 
 
@@ -112,10 +116,76 @@ class CarRacingDataset(Dataset):
             return self.dataset[idx]
 
 
+class LatentDataset(Dataset):
+    def __init__(self, dataset_path, model_path, latent_dataset_path=None):
+        self.dataset_path = dataset_path
+        self.latent_dataset_path = latent_dataset_path
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-if __name__ == "__main__":
-    dataset = CarRacingDataset(episodes=16, episode_length=50)
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
+        self.model = VAE(input_channels=3, latent_dim=32)
+        self.vae, _ = load_model(self.model, load_checkpoint=False, model_name=model_path)
+        self.vae.eval().to(self.device)
+
+
+        if os.path.exists(self.dataset_path):
+            self.dataset = torch.load(self.dataset_path)
+            print(f"Len of dataset {self.dataset_path}: ", len(self.dataset))
+            print(f"====>Dataset loaded from {self.dataset_path}")
+        else:
+            print(f"====>Dataset not found at {self.dataset_path}. Please create it first.")
+            raise FileNotFoundError
+
+        
+        if os.path.exists(self.latent_dataset_path):
+            self.latent_dataset = torch.load(self.latent_dataset_path)
+            print(f"Len of latent dataset {self.latent_dataset_path}: ", len(self.latent_dataset))
+            print(f"====>Dataset loaded from {self.latent_dataset_path}")
+        else:
+            filename = os.path.basename(self.latent_dataset_path)
+            print(f"====>Creating dataset {filename}...")
+            self.latent_dataset = self.collect_latents()
+
+
+    def collect_latents(self):
+        latents = []
+        for episode in self.dataset:
+            latent_obs = []
+            with torch.no_grad():
+                for idx in range(0, len(episode.observations), 32):
+                    end = min(idx+32, len(episode.observations))
+                    mini_batch = episode.observations[idx:end].to(self.device)
+                    z, _, _ = self.vae.encoder(mini_batch)
+                    latent_obs.append(z.cpu())
+
+            latent_obs = torch.cat(latent_obs, dim=0)
+            latents.append(Episode(
+                observations=latent_obs,
+                actions=episode.actions,
+                rewards=episode.rewards
+            ))
+
+        torch.save(latents, self.latent_dataset_path)
+        print(f"====>Latent dataset saved at {self.latent_dataset_path}.")
+
+
+
+    def __len__(self):
+        return len(self.latent_dataset)
     
-    for batch_observations, batch_actions, batch_rewards in dataloader:
-        print(batch_observations.shape, batch_actions.shape, batch_rewards.shape)
+
+    def __getitem__(self, idx):
+        return self.latent_dataset[idx]
+
+    
+
+
+
+# if __name__ == "__main__":
+#     # dataset = CarRacingDataset(episodes=16, episode_length=50)
+#     # dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
+    
+#     # for batch_observations, batch_actions, batch_rewards in dataloader:
+#     #     print(batch_observations.shape, batch_actions.shape, batch_rewards.shape)
+
+#     dataset = LatentDataset(dataset_path="dataset/train.pt", model_path="vae.pt", latent_dataset_path="dataset/latent_dataset.pt")
+    

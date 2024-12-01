@@ -32,31 +32,29 @@ class MDN(nn.Module):
         self.output_layer = nn.Linear(hidden_dim, num_gaussians * (2 * latent_dim + 1))
     
 
+
     def forward(self, hidden_state):
         out = self.output_layer(hidden_state)
         
-        offset = self.num_gaussians + self.num_gaussians * self.latent_dim
+        total_dim = self.num_gaussians * (2 * self.latent_dim + 1)
+        assert out.size(-1) == total_dim, f"Dimension mismatch: expected {total_dim}, got {out.size(-1)}"
 
-        alpha = out[:, :self.num_gaussians]
-        mu = out[:, self.num_gaussians:offset]
-        sigma = out[:, offset:]
+        batch_size, num_frames = hidden_state.size(0), hidden_state.size(1)
 
-        alpha = F.softmax(alpha.view(-1, self.num_gaussians), dim=1) + 1e-8
-        mu = mu.view(-1, self.num_gaussians, self.latent_dim)
-        sigma = torch.exp(sigma.view(-1, self.num_gaussians, self.latent_dim)) + 1e-8
+        alpha = out[:, :, :self.num_gaussians] 
+        mu = out[:, :, self.num_gaussians:self.num_gaussians + self.num_gaussians * self.latent_dim]
+        sigma = out[:, :, self.num_gaussians + self.num_gaussians * self.latent_dim:]
+
+
+        mu = mu.view(batch_size, num_frames, self.num_gaussians, self.latent_dim)  
+        sigma = sigma.view(batch_size, num_frames, self.num_gaussians, self.latent_dim) 
+
+        alpha = F.softmax(alpha, dim=-1)  
+        sigma = torch.exp(sigma)  
 
         return alpha, mu, sigma
 
-
-
-    def mdn_loss(self, alpha, sigma, mu, target, eps=1e-8):
-        target = target.unsqueeze(1).expand_as(mu)
-        m = torch.distributions.Normal(loc=mu, scale=sigma)
-        log_prob = m.log_prob(target)
-        log_prob = log_prob.sum(dim=2)
-        log_alpha = torch.log(alpha + eps)  
-        loss = -torch.logsumexp(log_alpha + log_prob, dim=1)
-        return loss.mean()
+    
 
 
 
@@ -66,8 +64,8 @@ class MDNLSTM(nn.Module):
         super(MDNLSTM, self).__init__()
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.input_dim = latent_dim + action_dim
-        self.lstm = LSTM(self.input_dim, hidden_dim)
-        self.mdn = MDN(latent_dim, action_dim, hidden_dim, num_gaussians)
+        self.lstm = LSTM(self.input_dim, hidden_dim).to(self.device)
+        self.mdn = MDN(latent_dim, action_dim, hidden_dim, num_gaussians).to(self.device)
 
 
     def forward(self, latent_vector, action_vector):
@@ -78,9 +76,23 @@ class MDNLSTM(nn.Module):
         x = x.unsqueeze(0) if len(x.shape) == 2 else x
 
         out, hidden_state = self.lstm(x)
-        alpha, mu, sigma = self.mdn(out[:, -1, :])
+        alpha, mu, sigma = self.mdn(out)
 
         return alpha, mu, sigma, hidden_state
+    
+
+    def mdn_loss(self, alpha, sigma, mu, target, eps=1e-8):
+        target = target.unsqueeze(2)
+        target = target.expand(-1, -1, mu.size(2), -1)
+
+        assert target.shape == mu.shape, "Mismatch in target shape"
+
+        m = torch.distributions.Normal(loc=mu, scale=sigma)
+        log_prob = m.log_prob(target)
+        log_prob = log_prob.sum(dim=-1)
+        log_alpha = torch.log(alpha + eps)  
+        loss = -torch.logsumexp(log_alpha + log_prob, dim=-1)
+        return loss.mean()
 
 
         
@@ -91,13 +103,11 @@ if __name__ == "__main__":
     hidden_dim = 256
     num_gaussians = 5
 
-    # Modello
     model = MDNLSTM(latent_dim=latent_dim, action_dim=action_dim, hidden_dim=hidden_dim, num_gaussians=num_gaussians)
 
-    # Input fittizio
-    z_t = torch.randn(1, latent_dim)  # Stato latente corrente
-    a_t = torch.randn(1, action_dim)  # Azione
-    hidden_state = (torch.zeros(1, 1, hidden_dim), torch.zeros(1, 1, hidden_dim))  # Stato iniziale della LSTM
+    z_t = torch.randn(1, latent_dim)  
+    a_t = torch.randn(1, action_dim)  
+    hidden_state = (torch.zeros(1, 1, hidden_dim), torch.zeros(1, 1, hidden_dim))  
 
     # Forward pass
     pi, mu, sigma, hidden_state = model(z_t, a_t)

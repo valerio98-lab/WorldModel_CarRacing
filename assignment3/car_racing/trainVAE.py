@@ -16,7 +16,7 @@ torch.manual_seed(42)
 
 
 class trainVAE(nn.Module):
-    def __init__(self, dataset_path, input_channels=3, latent_dim=32, batch_size=32, epochs=10, episodes=20, episode_length=10):
+    def __init__(self, vae_path, dataset_path, input_channels=3, latent_dim=32, batch_size=32, epochs=10, episodes=20, episode_length=10):
         super(trainVAE, self).__init__()
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.input_channels = input_channels
@@ -24,9 +24,10 @@ class trainVAE(nn.Module):
         self.latent_dim=latent_dim
         self.batch_size = batch_size
         self.vae = VAE(input_channels, latent_dim).to(self.device)
+        self.vae_path = vae_path
 
         self.optimizer = optim.Adam(self.vae.parameters(), lr=1e-3)
-        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, patience=5)
+        #self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, patience=5)
 
         train_episodes = int(episodes * 0.7)
         val_episodes = int(episodes * 0.2)
@@ -58,7 +59,7 @@ class trainVAE(nn.Module):
         torch.cuda.empty_cache()
 
 
-    def test(self, epoch):
+    def test(self):
         self.vae.eval()
         test_loss = 0
         with torch.no_grad():
@@ -69,7 +70,7 @@ class trainVAE(nn.Module):
                 test_loss += loss.item()
         
 
-        print(f"Epoch: {epoch}, Test Loss: {test_loss / len(self.test_loader.dataset)}")
+        print(f"Test Loss: {test_loss / len(self.test_loader.dataset)}")
         torch.cuda.empty_cache()
         
         return test_loss / len(self.test_loader.dataset)
@@ -94,14 +95,15 @@ class trainVAE(nn.Module):
     def train_model(self):
         for epoch in range(self.epochs):
             self.train(epoch)
-            val_loss = self.validation(epoch)
-            self.scheduler.step(val_loss)
-            save_model(self.vae, self.optimizer, self.scheduler, epoch, 'vae')
+            self.validation(epoch)
+            #val_loss = self.validation(epoch)
+            #self.scheduler.step(val_loss)
+            save_model(self.vae, self.optimizer, self.scheduler, epoch, self.vae_path)
             torch.cuda.empty_cache()
         
         print("Training completed")
         print("Testing model...")
-        self.test(epoch)
+        self.test()
         torch.cuda.empty_cache()
 
 
@@ -128,8 +130,7 @@ if __name__ == "__main__":
 
     # Mostra le ricostruzioni usando il dataloader di test
     model = trainVAE(dataset_path='./dataset', input_channels=3, latent_dim=32, batch_size=32, epochs=20, episodes=400  , episode_length=500) #300,500
-    model.train_model()
-    #vae, _, _ = load_model(model=model.vae, model_name='vae')
-    vae = model.vae()
+    #model.train_model()
+    vae, _ = load_model(model=model.vae, model_name='vae')
     show_reconstructions(vae, model.train_loader, model.device)
     

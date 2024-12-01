@@ -1,6 +1,8 @@
 import torch 
 import torch.nn as nn
 
+torch.manual_seed(42)
+
 
 class Controller(nn.Module):
     """ Our controller for the car racing environment. a_t = W[z_t, h_t] + b """
