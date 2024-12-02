@@ -18,7 +18,7 @@ class Controller(nn.Module):
         x = torch.cat((z,h), dim=1)
         x = self.fc(x)
 
-        return x
+        return torch.tanh(x)
 
 if __name__ == "__main__":
     controller = Controller(32, 64)

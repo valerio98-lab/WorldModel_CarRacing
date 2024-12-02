@@ -166,18 +166,17 @@ class trainMDNLSTM(nn.Module):
 
 
 
-if __name__ == "__main__":
-    train = trainMDNLSTM(
-        dataset_path="dataset",
-        vae_model_path="vae.pt",
-        mdn_model_path="mdn_lstm",
-        latent_dim=32,
-        action_dim=3,
-        hidden_dim=256,
-        num_gaussians=5,
-        batch_size=32,
-        epochs=60
-    )
+# if __name__ == "__main__":
+#     train = trainMDNLSTM(
+#         dataset_path="dataset",
+#         vae_model_path="vae.pt",
+#         mdn_model_path="mdn_lstm",
+#         latent_dim=32,
+#         action_dim=3,
+#         hidden_dim=256,
+#         num_gaussians=5,
+#         batch_size=32,
+#         epochs=60
+#     )
 
-    train.train_model()
 

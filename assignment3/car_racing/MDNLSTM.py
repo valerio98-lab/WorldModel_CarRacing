@@ -57,7 +57,6 @@ class MDN(nn.Module):
     
 
 
-
 class MDNLSTM(nn.Module):
     """ LSTM + MDN"""
     def __init__(self, latent_dim, action_dim, hidden_dim, num_gaussians=5):
@@ -93,6 +92,46 @@ class MDNLSTM(nn.Module):
         log_alpha = torch.log(alpha + eps)  
         loss = -torch.logsumexp(log_alpha + log_prob, dim=-1)
         return loss.mean()
+
+
+class MDNLSTM_Controller(nn.Module):
+    """ In order to train successfully the controller and in accordance with the paper 
+    we need to have an explicit management of the hidden state rather than an implicit as in the previous model
+    
+    
+    The logic could be plugged in the previous model with a slight modification of the forward method
+    but for the sake of clarity we keep it separate"""
+
+    def __init__(self,
+                 latent_dim,
+                 action_dim,
+                 hidden_dim,
+                 num_gaussians=5):
+        super(MDNLSTM_Controller, self).__init__()
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.latent_dim = latent_dim
+        self.action_dim = action_dim
+        self.hidden_dim = hidden_dim
+        self.num_gaussians = num_gaussians
+
+        self.lstm = LSTM(latent_dim + action_dim, hidden_dim).to(self.device)
+        self.mdn = MDN(latent_dim, action_dim, hidden_dim, num_gaussians).to(self.device)
+
+
+    def forward(self, latent_vector, action_vector, hidden_state=None):
+        latent_vector = latent_vector.to(self.device)
+        action_vector = action_vector.to(self.device)
+
+        x = torch.cat((latent_vector, action_vector), dim=-1)
+        x = x.unsqueeze(0) if len(x.shape) == 2 else x
+
+        out, hidden_state = self.lstm(x, hidden_state)
+        alpha, mu, sigma = self.mdn(out)
+
+        return alpha, mu, sigma, hidden_state
+
+
+
 
 
         
