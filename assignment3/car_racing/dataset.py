@@ -117,9 +117,10 @@ class CarRacingDataset(Dataset):
 
 
 class LatentDataset(Dataset):
-    def __init__(self, dataset_path, model_path, latent_dataset_path=None):
+    def __init__(self, dataset_path, model_path, batch_size=32, latent_dataset_path=None):
         self.dataset_path = dataset_path
         self.latent_dataset_path = latent_dataset_path
+        self.batch_size = batch_size
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
         self.model = VAE(input_channels=3, latent_dim=32)
@@ -151,21 +152,29 @@ class LatentDataset(Dataset):
         for episode in self.dataset:
             latent_obs = []
             with torch.no_grad():
-                for idx in range(0, len(episode.observations), 32):
-                    end = min(idx+32, len(episode.observations))
+                for idx in range(0, len(episode.observations), self.batch_size):
+                    end = min(idx+self.batch_size, len(episode.observations))
                     mini_batch = episode.observations[idx:end].to(self.device)
+                    #print(f"Mini-batch shape: {mini_batch.shape}")
                     z, _, _ = self.vae.encoder(mini_batch)
+                    #print(f"Latent shape: {z.shape}")
                     latent_obs.append(z.cpu())
 
             latent_obs = torch.cat(latent_obs, dim=0)
+            #print(f"Latent observations shape for episode: {latent_obs.shape}")
+
             latents.append(Episode(
                 observations=latent_obs,
                 actions=episode.actions,
                 rewards=episode.rewards
             ))
+            #print(f"Number of episodes in latent dataset: {len(latents)}")
+
 
         torch.save(latents, self.latent_dataset_path)
         print(f"====>Latent dataset saved at {self.latent_dataset_path}.")
+
+        return latents
 
 
 
@@ -181,11 +190,20 @@ class LatentDataset(Dataset):
 
 
 # if __name__ == "__main__":
-#     # dataset = CarRacingDataset(episodes=16, episode_length=50)
-#     # dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
-    
-#     # for batch_observations, batch_actions, batch_rewards in dataloader:
-#     #     print(batch_observations.shape, batch_actions.shape, batch_rewards.shape)
+#     dataset = CarRacingDataset(path="giggi/dataset.pt", episodes=10, episode_length=100)
+#     print(len(dataset))
+#     print(dataset[0].shape)
+#     latent_dataset = LatentDataset(dataset_path="giggi/dataset.pt", model_path="vae.pt", batch_size=32, latent_dataset_path="latent_dataset.pt")
+#     print(len(latent_dataset))
+#     print(latent_dataset[0].shape)
+#     print(latent_dataset[0].actions.shape)
+#     print(latent_dataset[0].rewards.shape)
+#     print(latent_dataset[0].observations.shape)
+#     print(latent_dataset[0].observations[0].shape)
+#     print(latent_dataset[0].observations[0].dtype)
+#     print(latent_dataset[0].observations[0].device)
+#     print(latent_dataset[0].observations[0].mean())
+#     print(latent_dataset[0].observations[0].std())
+#     print(latent_dataset[0].observations[0].min())
+#     print(latent_dataset[0].observations[0].max())
 
-#     dataset = LatentDataset(dataset_path="dataset/train.pt", model_path="vae.pt", latent_dataset_path="dataset/latent_dataset.pt")
-    

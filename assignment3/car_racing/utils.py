@@ -25,6 +25,7 @@ def load_model(model, optimizer=None, model_name=None, epoch=None, load_checkpoi
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     else:
-        model.load_state_dict(torch.load(f'{model_name}'))
+        model.load_state_dict(torch.load(f'{model_name}', weights_only=True))
         print(f"Model loaded from {model_name}")
     return model, optimizer
+

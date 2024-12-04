@@ -23,7 +23,8 @@ class trainMDNLSTM(nn.Module):
                     action_dim, 
                     hidden_dim, 
                     num_gaussians=5, 
-                    batch_size=32,
+                    batch_size_vae=32,
+                    batch_size=64,
                     epochs=10,
                     episodes=20,
                     episode_length=10
@@ -31,6 +32,7 @@ class trainMDNLSTM(nn.Module):
         
         super(trainMDNLSTM, self).__init__()
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.batch_size_vae = batch_size_vae
         self.latent_dim = latent_dim
         self.action_dim = action_dim
         self.hidden_dim = hidden_dim
@@ -44,7 +46,7 @@ class trainMDNLSTM(nn.Module):
         self.vae.eval().to(self.device)
 
 
-        self.train_dataset = LatentDataset(dataset_path=f"{self.dataset_path}/train.pt", model_path=vae_model_path, latent_dataset_path=f"{self.dataset_path}/train_latent.pt")
+        self.train_dataset = LatentDataset(dataset_path=f"{self.dataset_path}/train.pt", model_path=vae_model_path, batch_size=self.batch_size_vae, latent_dataset_path=f"{self.dataset_path}/train_latent.pt")
         self.val_dataset = LatentDataset(dataset_path=f"{self.dataset_path}/validation.pt", model_path=vae_model_path, latent_dataset_path=f"{self.dataset_path}/validation_latent.pt")
         self.test_dataset = LatentDataset(dataset_path=f"{self.dataset_path}/test.pt", model_path=vae_model_path, latent_dataset_path=f"{self.dataset_path}/test_latent.pt")
 

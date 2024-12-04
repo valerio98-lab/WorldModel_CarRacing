@@ -120,7 +120,7 @@ class MDNLSTM_Controller(nn.Module):
 
     def forward(self, latent_vector, action_vector, hidden_state=None):
         latent_vector = latent_vector.to(self.device)
-        action_vector = action_vector.to(self.device)
+        action_vector = action_vector.unsqueeze(0).to(self.device)
 
         x = torch.cat((latent_vector, action_vector), dim=-1)
         x = x.unsqueeze(0) if len(x.shape) == 2 else x
@@ -136,22 +136,22 @@ class MDNLSTM_Controller(nn.Module):
 
         
 
-if __name__ == "__main__":
-    latent_dim = 32
-    action_dim = 3
-    hidden_dim = 256
-    num_gaussians = 5
+# if __name__ == "__main__":
+#     latent_dim = 32
+#     action_dim = 3
+#     hidden_dim = 256
+#     num_gaussians = 5
 
-    model = MDNLSTM(latent_dim=latent_dim, action_dim=action_dim, hidden_dim=hidden_dim, num_gaussians=num_gaussians)
+#     model = MDNLSTM(latent_dim=latent_dim, action_dim=action_dim, hidden_dim=hidden_dim, num_gaussians=num_gaussians)
 
-    z_t = torch.randn(1, latent_dim)  
-    a_t = torch.randn(1, action_dim)  
-    hidden_state = (torch.zeros(1, 1, hidden_dim), torch.zeros(1, 1, hidden_dim))  
+#     z_t = torch.randn(1, latent_dim)  
+#     a_t = torch.randn(1, action_dim)  
+#     hidden_state = (torch.zeros(1, 1, hidden_dim), torch.zeros(1, 1, hidden_dim))  
 
-    # Forward pass
-    pi, mu, sigma, hidden_state = model(z_t, a_t)
+#     # Forward pass
+#     pi, mu, sigma, hidden_state = model(z_t, a_t)
 
-    # Output
-    print("Pesi della miscela (pi):", pi.shape)  # (batch_size, num_gaussians)
-    print("Medie (mu):", mu.shape)              # (batch_size, num_gaussians, latent_dim)
-    print("Deviazioni standard (sigma):", sigma.shape) 
+#     # Output
+#     print("Pesi della miscela (pi):", pi.shape)  # (batch_size, num_gaussians)
+#     print("Medie (mu):", mu.shape)              # (batch_size, num_gaussians, latent_dim)
+#     print("Deviazioni standard (sigma):", sigma.shape) 

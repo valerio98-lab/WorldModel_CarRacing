@@ -1,129 +1,162 @@
 import torch
+import torch.nn as nn
 import numpy as np
 import multiprocessing as mp
 from cma import CMAEvolutionStrategy
 import gymnasium as gym
 
-from MDNLSTM import MDNLSTM_Controller
-
-torch.manual_seed(42)
-
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
-
-def rollout(controller, vae, mdn_lstm:MDNLSTM_Controller, env=gym.make('CarRacing-v2'), steps=500):
-    obs = env.reset()
-    h = (torch.zeros(1, mdn_lstm.hidden_dim).to(device),
-         torch.zeros(1, mdn_lstm.hidden_dim).to(device))
-    total_reward = 0
-    done = False
-    for _ in range(steps):
-        if done:
-            break
-        obs = torch.tensor(obs, dtype=torch.float32).permute(2, 0, 1).unsqueeze(0).to(device)
-        z, _, _ = vae(obs)
-        a = controller(z, h)
-        a.detach().cpu().numpy()
-        obs, reward, truncated, terminated, _ = env.step(a)
-        done = truncated or terminated
-
-        total_reward += reward
-        _, _, _, h = mdn_lstm(z, a, h)
-
-    return total_reward    
+from torchvision import transforms
+from utils import load_model
+from vae import VAE
+from tqdm import tqdm
 
 
-import multiprocessing as mp
-import torch
-import numpy as np
-from cma import CMAEvolutionStrategy
+class TrainController:
+    def __init__(
+        self, controller_cls, vae_cls, mdn_lstm_cls,
+        vae_path, mdn_lstm_path, latent_dim, hidden_dim, action_dim, input_channels,
+        env_name='CarRacing-v2', rollout_per_worker=16, max_steps=1000, device=None
+    ):
+        self.controller_cls = controller_cls
+        self.vae_cls = vae_cls
+        self.mdn_lstm_cls = mdn_lstm_cls
 
-def slave_routine(controller, vae, mdn_lstm, env_name, param_queue, result_queue, device):
-    """
-    Processo parallelo per eseguire rollouts con i parametri specificati.
-    """
-    env = gym.make(env_name)
-    while True:
-        params = param_queue.get()
-        if params is None:  
-            break
+        self.vae, _  = load_model(model=vae_cls(input_channels, latent_dim), model_name=vae_path, load_checkpoint=False)
+        self.mdn_lstm, _ = load_model(model=mdn_lstm_cls(latent_dim, action_dim, hidden_dim), model_name=mdn_lstm_path, load_checkpoint=False)
+        self.controller = controller_cls(latent_dim, hidden_dim)
+        self.latent_dim = latent_dim
+        self.hidden_dim = hidden_dim
+        self.action_dim = action_dim
+        self.env_name = env_name
+        self.rollout_per_worker = rollout_per_worker
+        self.max_steps = max_steps
+        self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
+        self.env = gym.make(env_name)
+        self.transform = transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.Resize((64, 64)),
+            transforms.ToTensor(),
+        ])
 
-        torch.nn.utils.vector_to_parameters(torch.tensor(params).to(device), controller.parameters())
+        self.vae = self.vae.eval().to(self.device)
+        self.mdn_lstm = self.mdn_lstm.eval().to(self.device)
+        self.controller = self.controller.to(torch.float32).to(self.device)
 
-        rewards = []
-        for _ in range(16):
-            rewards.append(rollout(controller, vae, mdn_lstm, env))
-        avg_reward = np.mean(rewards)
+    def rollout(self, controller, render=False):
+        with torch.no_grad():
+            obs, _ = self.env.reset()
+            h = (torch.zeros(1, 1, self.hidden_dim, device=self.device, dtype=torch.float32),  # h
+                torch.zeros(1, 1, self.hidden_dim, device=self.device, dtype=torch.float32))  # c
 
-        result_queue.put(avg_reward)
+            total_reward = 0
+            done = False
 
+            for _ in range(self.max_steps):
+                if done:
+                    break
 
-def train_controller_with_cmaes_parallel(controller, vae, mdn_lstm, env_name='CarRacing-v2',
-                                         num_iterations=100, population_size=64, max_steps=1000, num_workers=None):
-    """
-    Addestra il controller utilizzando CMA-ES con rollout paralleli, con numero di worker configurabile.
-    """
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    param_vector = torch.nn.utils.parameters_to_vector(controller.parameters()).detach().cpu().numpy()
-    cma_es = CMAEvolutionStrategy(param_vector, 0.5, {'popsize': population_size})
+                obs = self.transform(obs)
+                obs_tensor = torch.from_numpy(np.array(obs, dtype=np.float32)).unsqueeze(0).to(self.device)
+                z, _, _ = self.vae.encoder(obs_tensor)
+                action = controller(z, h[0]).cpu().detach().numpy().flatten()
 
-    if num_workers is None:
-        num_workers = mp.cpu_count()
+                obs, reward, terminated, truncated, _ = self.env.step(action)
+                if render:
+                    self.env.render()
 
-    param_queue = mp.Queue()
-    result_queue = mp.Queue()
+                total_reward += reward
+                done = terminated or truncated
 
+                a = torch.tensor(action, dtype=torch.float32).to(self.device)
+                _, _, _, h = self.mdn_lstm(z, a, h)
 
-    processes = []
-    for _ in range(num_workers):
-        p = mp.Process(target=slave_routine, args=(controller, vae, mdn_lstm, env_name, param_queue, result_queue, device))
-        p.start()
-        processes.append(p)
-
-    for iteration in range(num_iterations):
-        solutions = cma_es.ask()  
-
-        for solution in solutions:
-            param_queue.put(solution)
-
-        rewards = []
-        for _ in range(len(solutions)):
-            rewards.append(result_queue.get())
-
-        cma_es.tell(solutions, [-r for r in rewards])
-
-
-        print(f"Iterazione {iteration + 1}/{num_iterations}, Ricompensa media: {np.mean(rewards):.2f}, Ricompensa migliore: {np.max(rewards):.2f}")
-
-        if (iteration + 1) % 25 == 0:
-            best_params = cma_es.best.x
-            torch.nn.utils.vector_to_parameters(torch.tensor(best_params).to(device), controller.parameters())
-            rewards = [rollout(controller, vae, mdn_lstm, gym.make(env_name)) for _ in range(1024)]
-            avg_best_reward = np.mean(rewards)
-            print(f"Generazione {iteration + 1}, Ricompensa media del miglior agente su 1024 rollout: {avg_best_reward:.2f}")
-            torch.save(controller.state_dict(), f"controller_best_{iteration + 1}.pth")
-
-    for _ in processes:
-        param_queue.put(None)
-    for p in processes:
-        p.join()
-
-    return controller
+            torch.cuda.empty_cache()
+            return total_reward
 
 
+    def worker_process(self, param_queue, result_queue):
+        controller = self.controller.to(self.device)
 
-# def train_controller(controller, vae, mdn_lstm, env, num_rollouts=10, steps=500):
-#     device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        while True:
+            params = param_queue.get()
+            if params is None:
+                break
 
-#     param_vector = torch.nn.utils.parameters_to_vector(controller.parameters()).detach().cpu().numpy()
-#     cma_es = CMAEvolutionStrategy(param_vector, 0.5, {'popsize': population_size})
+            params = torch.tensor(params, dtype=torch.float32).to(self.device)
+            torch.nn.utils.vector_to_parameters(params, controller.parameters())
+            rewards = [self.rollout(controller) for _ in range(self.rollout_per_worker)]
+            result_queue.put(np.mean(rewards))
+
+        torch.cuda.empty_cache()
 
 
+    def train(self, num_iterations=100, population_size=64, num_workers=None):
+        num_workers = num_workers or mp.cpu_count()
+        param_queue = mp.Queue()
+        result_queue = mp.Queue()
 
+        processes = []
+        for _ in range(num_workers):
+            p = mp.Process(target=self.worker_process, args=(param_queue, result_queue))
+            p.start()
+            processes.append(p)
+
+        controller_params = torch.nn.utils.parameters_to_vector(self.controller.parameters()).detach().cpu().numpy()
+        cma_es = CMAEvolutionStrategy(controller_params, 0.5, {'popsize': population_size})
+
+        for iteration in tqdm(range(num_iterations), desc="Training Iterations", unit="iteration"):
+            solutions = cma_es.ask()
+            
+            for solution in solutions:
+                param_queue.put(solution)
+
+            rewards = [result_queue.get() for _ in range(len(solutions))]
+            cma_es.tell(solutions, [-r for r in rewards])
+
+            print(f"Iter {iteration + 1}/{num_iterations}, Mean Reward: {np.mean(rewards):.2f}, Best Reward: {np.max(rewards):.2f}")
+
+        for _ in range(num_workers):
+            param_queue.put(None)
+        for p in processes:
+            p.join()
+
+        torch.cuda.empty_cache()
+
+        return self.controller
 
 
 # if __name__ == "__main__":
-#     from vae import VAE
-#     vae = VAE(3, 32)
-#     vae.cuda()
-#     rollout(None, vae)
+#     from controller import Controller
+#     from MDNLSTM import MDNLSTM_Controller
+
+#     mp.set_start_method('spawn')
+
+#     latent_dim = 32
+#     hidden_dim = 256
+#     action_dim = 3
+#     input_channels = 3
+#     vae_path = './vae.pt'
+#     mdn_lstm_path = './mdn_lstm.pt'
+
+
+#     train_controller = TrainController(
+#         controller_cls=Controller,
+#         vae_cls=VAE,
+#         mdn_lstm_cls=MDNLSTM_Controller,
+#         vae_path=vae_path,
+#         mdn_lstm_path=mdn_lstm_path,
+#         latent_dim=latent_dim,
+#         hidden_dim=hidden_dim,
+#         action_dim=action_dim,
+#         input_channels=input_channels,
+#         env_name='CarRacing-v2',
+#         rollout_per_worker=10,
+#         max_steps=500,
+#         device='cuda' if torch.cuda.is_available() else 'cpu'
+#     )
+
+#     trained_controller = train_controller.train(
+#         num_iterations=10, 
+#         population_size=16,  
+#         num_workers=12  
+# )
