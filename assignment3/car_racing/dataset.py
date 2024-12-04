@@ -23,17 +23,18 @@ class Episode:
 
 
 class CarRacingDataset(Dataset):
-    def __init__(self, path, episodes=10000, episode_length=100, continuous=False, noise_type=None, mode="frames"):
+    def __init__(self, path, episodes=10000, episode_length=1000, continuous=False, noise_type=None, mode="frames"):
         self.env = gym.make(id='CarRacing-v2', continuous=continuous)
         self.episode_length = episode_length
         self.mode = mode
         self.path = path
         self.episodes = episodes
         self.noise_type = noise_type
-        self.transform = transforms.Compose([
+        self.transform = transforms.Compose([  
             transforms.ToPILImage(),
-            transforms.Resize((64, 64)),
+            transforms.Resize((64, 64)),      
             transforms.ToTensor(),
+            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
         ])
         
         if os.path.exists(self.path):
@@ -50,7 +51,7 @@ class CarRacingDataset(Dataset):
     def catch_data(self):
         data = []
         lengths = []
-        for episode in tqdm.tqdm(range(self.episodes)):
+        for _ in tqdm.tqdm(range(self.episodes)):
             observations, actions, rewards = [], [], []
             obs, _ = self.env.reset()
             for _ in range(self.episode_length):
@@ -131,7 +132,7 @@ class LatentDataset(Dataset):
         if os.path.exists(self.dataset_path):
             self.dataset = torch.load(self.dataset_path)
             print(f"Len of dataset {self.dataset_path}: ", len(self.dataset))
-            print(f"====>Dataset loaded from {self.dataset_path}")
+            print(f"====>Dataset loaded from {self.dataset_path}. Len: {len(self.dataset)} Rollouts")
         else:
             print(f"====>Dataset not found at {self.dataset_path}. Please create it first.")
             raise FileNotFoundError
@@ -139,8 +140,7 @@ class LatentDataset(Dataset):
         
         if os.path.exists(self.latent_dataset_path):
             self.latent_dataset = torch.load(self.latent_dataset_path)
-            print(f"Len of latent dataset {self.latent_dataset_path}: ", len(self.latent_dataset))
-            print(f"====>Dataset loaded from {self.latent_dataset_path}")
+            print(f"====>Dataset loaded from {self.latent_dataset_path}. Len: {len(self.latent_dataset)} Rollouts")
         else:
             filename = os.path.basename(self.latent_dataset_path)
             print(f"====>Creating dataset {filename}...")

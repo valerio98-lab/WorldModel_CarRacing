@@ -3,8 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch import optim
-from torchvision import transforms, datasets
-import tqdm.auto as tqdm
+from tqdm import tqdm
 import os
 
 from vae import VAE
@@ -45,7 +44,7 @@ class trainVAE(nn.Module):
     def train(self, epoch):
         self.vae.train()
         train_loss = 0
-        for batch in tqdm.tqdm(self.train_loader):
+        for batch in self.train_loader:
             batch = batch.to(self.device)
             self.optimizer.zero_grad()
             recon, mu, sigma = self.vae(batch)
@@ -63,7 +62,7 @@ class trainVAE(nn.Module):
         self.vae.eval()
         test_loss = 0
         with torch.no_grad():
-            for batch in tqdm.tqdm(self.test_loader):
+            for batch in self.test_loader:
                 batch = batch.to(self.device)
                 recon, mu, sigma = self.vae(batch)
                 loss = self.vae.loss_function(recon, batch, mu, sigma)
@@ -81,7 +80,7 @@ class trainVAE(nn.Module):
         self.vae.eval()
         val_loss = 0
         with torch.no_grad():
-            for batch in tqdm.tqdm(self.val_loader):
+            for batch in self.val_loader:
                 batch = batch.to(self.device)
                 recon, mu, sigma = self.vae(batch)
                 val_loss += self.vae.loss_function(recon, batch, mu, sigma)
@@ -93,12 +92,17 @@ class trainVAE(nn.Module):
 
 
     def train_model(self):
-        for epoch in range(self.epochs):
+        if os.path.exists(self.vae_path):
+            self.vae, _ = load_model(model=self.vae, model_name=self.vae_path, load_checkpoint=False)
+            return
+        
+        print("Training model...")
+        for epoch in tqdm(iterable=range(self.epochs), desc="Epochs", leave=False):
             self.train(epoch)
             self.validation(epoch)
             #val_loss = self.validation(epoch)
             #self.scheduler.step(val_loss)
-            save_model(self.vae, self.optimizer, self.scheduler, epoch, self.vae_path)
+            save_model(model=self.vae, optimizer=self.optimizer, epoch=epoch, model_name=self.vae_path)
             torch.cuda.empty_cache()
         
         print("Training completed")
@@ -107,30 +111,30 @@ class trainVAE(nn.Module):
         torch.cuda.empty_cache()
 
 
-if __name__ == "__main__":
-    import matplotlib.pyplot as plt
+# if __name__ == "__main__":
+#     import matplotlib.pyplot as plt
 
-    def show_reconstructions(model, dataloader, device):
-        model.eval()
-        with torch.no_grad():
-            for batch in dataloader:
-                batch = batch.to(device)
-                recon, _, _ = model(batch)
-                # Mostra le immagini originali e quelle ricostruite
-                fig, axes = plt.subplots(2, 10, figsize=(15, 3))
-                for i in range(10):
-                    # Mostra le immagini originali
-                    axes[0, i].imshow(batch[i].cpu().permute(1, 2, 0).squeeze(), cmap='gray')
-                    axes[0, i].axis('off')
-                    # Mostra le ricostruzioni
-                    axes[1, i].imshow(recon[i].cpu().permute(1, 2, 0).squeeze(), cmap='gray')
-                    axes[1, i].axis('off')
-                plt.show()
-                break
+#     def show_reconstructions(model, dataloader, device):
+#         model.eval()
+#         with torch.no_grad():
+#             for batch in dataloader:
+#                 batch = batch.to(device)
+#                 recon, _, _ = model(batch)
+#                 # Mostra le immagini originali e quelle ricostruite
+#                 fig, axes = plt.subplots(2, 10, figsize=(15, 3))
+#                 for i in range(10):
+#                     # Mostra le immagini originali
+#                     axes[0, i].imshow(batch[i].cpu().permute(1, 2, 0).squeeze(), cmap='gray')
+#                     axes[0, i].axis('off')
+#                     # Mostra le ricostruzioni
+#                     axes[1, i].imshow(recon[i].cpu().permute(1, 2, 0).squeeze(), cmap='gray')
+#                     axes[1, i].axis('off')
+#                 plt.show()
+#                 break
 
-    # Mostra le ricostruzioni usando il dataloader di test
-    model = trainVAE(dataset_path='./dataset', input_channels=3, latent_dim=32, batch_size=32, epochs=20, episodes=400  , episode_length=500) #300,500
-    #model.train_model()
-    vae, _ = load_model(model=model.vae, model_name='vae')
-    show_reconstructions(vae, model.train_loader, model.device)
+#     # Mostra le ricostruzioni usando il dataloader di test
+#     model = trainVAE(dataset_path='./dataset', input_channels=3, latent_dim=32, batch_size=32, epochs=20, episodes=400  , episode_length=500) #300,500
+#     #model.train_model()
+#     vae, _ = load_model(model=model.vae, model_name='vae')
+#     show_reconstructions(vae, model.train_loader, model.device)
     

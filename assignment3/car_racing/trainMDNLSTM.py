@@ -1,7 +1,7 @@
 import torch 
 import torch.nn as nn
 import os
-import tqdm as tqdm
+from tqdm import tqdm
 
 from torch.utils.data import DataLoader
 from MDNLSTM import MDNLSTM 
@@ -25,9 +25,7 @@ class trainMDNLSTM(nn.Module):
                     num_gaussians=5, 
                     batch_size_vae=32,
                     batch_size=64,
-                    epochs=10,
-                    episodes=20,
-                    episode_length=10
+                    epochs=10
                 ):
         
         super(trainMDNLSTM, self).__init__()
@@ -105,7 +103,7 @@ class trainMDNLSTM(nn.Module):
         self.mdn.eval() 
         val_loss = 0
         with torch.no_grad():
-            for (latent_obs, act, rew) in self.val_dataloader:
+            for (latent_obs, act, _) in self.val_dataloader:
                 latent_obs = latent_obs.to(self.device)
                 act = act.to(self.device)
 
@@ -132,7 +130,7 @@ class trainMDNLSTM(nn.Module):
         self.mdn.eval()
         test_loss = 0
         with torch.no_grad(): 
-            for (latent_obs, act, rew) in self.test_dataloader:
+            for (latent_obs, act, _) in self.test_dataloader:
 
                 latent_obs = latent_obs.to(self.device)
                 act = act.to(self.device)
@@ -155,13 +153,23 @@ class trainMDNLSTM(nn.Module):
         return test_loss / len(self.test_dataloader.dataset)
 
 
+
+
     def train_model(self):
-        for epoch in tqdm.tqdm(range(self.epochs), desc="Epochs", leave=False):
+        if os.path.exists(f"{self.mdn_model_path}"):
+            self.mdn, _ = load_model(model=self.mdn, model_name=self.mdn_model_path, load_checkpoint=False)
+            return
+        
+        print("Training model...")
+        for epoch in tqdm(iterable=range(self.epochs), desc="Epochs", leave=False, unit="epoch"):
             self.train(epoch)
             self.validation(epoch)
             #self.scheduler.step(val_loss)
             save_model(model=self.mdn, optimizer=self.optimizer, epoch=epoch, model_name=self.mdn_model_path)
             torch.cuda.empty_cache()
+        
+        print("Training complete")
+        print("Testing model...")
         
         self.test()
              

@@ -36,6 +36,7 @@ class TrainController:
             transforms.ToPILImage(),
             transforms.Resize((64, 64)),
             transforms.ToTensor(),
+            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
         ])
 
         self.vae = self.vae.eval().to(self.device)
