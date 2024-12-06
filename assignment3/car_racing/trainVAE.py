@@ -32,9 +32,9 @@ class trainVAE(nn.Module):
         val_episodes = int(episodes * 0.2)
         test_episodes = episodes - train_episodes - val_episodes
 
-        self.dataset_train = CarRacingDataset(path=f'{dataset_path}/train.pt', episodes=train_episodes, episode_length=episode_length, continuous=True, mode='frames')
-        self.dataset_val = CarRacingDataset(path= f'{dataset_path}/validation.pt', episodes=val_episodes, episode_length=episode_length, continuous=True, mode='frames')
-        self.dataset_test = CarRacingDataset(path= f'{dataset_path}/test.pt', episodes=test_episodes, episode_length=episode_length, continuous=True, mode='frames')
+        self.dataset_train = CarRacingDataset(path=f'{dataset_path}/train.pt', batch_size=batch_size, episodes=train_episodes, episode_length=episode_length, continuous=True, mode='frames')
+        self.dataset_val = CarRacingDataset(path= f'{dataset_path}/validation.pt', batch_size=batch_size, episodes=val_episodes, episode_length=episode_length, continuous=True, mode='frames')
+        self.dataset_test = CarRacingDataset(path= f'{dataset_path}/test.pt', batch_size=batch_size, episodes=test_episodes, episode_length=episode_length, continuous=True, mode='frames')
 
         self.train_loader = DataLoader(self.dataset_train, batch_size=self.batch_size, shuffle=True)
         self.test_loader = DataLoader(self.dataset_test, batch_size=self.batch_size, shuffle=False)
