@@ -6,23 +6,30 @@ from cma import CMAEvolutionStrategy
 import gymnasium as gym
 
 from torchvision import transforms
-from utils import load_model
+from utils import load_model, save_model
 from vae import VAE
+from MDNLSTM import MDNLSTM
 from tqdm import tqdm
 
 
 class TrainController:
     def __init__(
-        self, controller_cls, vae_cls, mdn_lstm_cls,
-        vae_path, mdn_lstm_path, latent_dim, hidden_dim, action_dim, input_channels,
-        env_name='CarRacing-v2', rollout_per_worker=16, max_steps=1000, device=None
+        self,
+        controller_cls,
+        vae_model: VAE,
+        mdn_model: MDNLSTM,
+        latent_dim,
+        hidden_dim,
+        action_dim,
+        input_channels,
+        env_name='CarRacing-v2',
+        rollout_per_worker=16,
+        max_steps=1000,
+        device=None,
     ):
         self.controller_cls = controller_cls
-        self.vae_cls = vae_cls
-        self.mdn_lstm_cls = mdn_lstm_cls
-
-        self.vae, _  = load_model(model=vae_cls(input_channels, latent_dim), model_name=vae_path, load_checkpoint=False)
-        self.mdn_lstm, _ = load_model(model=mdn_lstm_cls(latent_dim, action_dim, hidden_dim), model_name=mdn_lstm_path, load_checkpoint=False)
+        self.vae = vae_model
+        self.mdn_lstm = mdn_model
         self.controller = controller_cls(latent_dim, hidden_dim)
         self.latent_dim = latent_dim
         self.hidden_dim = hidden_dim
@@ -32,22 +39,34 @@ class TrainController:
         self.max_steps = max_steps
         self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
         self.env = gym.make(env_name)
-        self.transform = transforms.Compose([
-            transforms.ToPILImage(),
-            transforms.Resize((64, 64)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
-        ])
+        self.transform = transforms.Compose(
+            [
+                transforms.ToPILImage(),
+                transforms.Resize((64, 64)),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+            ]
+        )
 
-        self.vae = self.vae.eval().to(self.device)
-        self.mdn_lstm = self.mdn_lstm.eval().to(self.device)
+        self.vae = self.vae.eval() if self.vae.cuda else self.vae.eval().to(self.device)
+        self.mdn_lstm = (
+            self.mdn_lstm.eval()
+            if self.mdn_lstm.cuda
+            else self.mdn_lstm.eval().to(self.device)
+        )
         self.controller = self.controller.to(torch.float32).to(self.device)
 
     def rollout(self, controller, render=False):
         with torch.no_grad():
             obs, _ = self.env.reset()
-            h = (torch.zeros(1, 1, self.hidden_dim, device=self.device, dtype=torch.float32),  # h
-                torch.zeros(1, 1, self.hidden_dim, device=self.device, dtype=torch.float32))  # c
+            h = (
+                torch.zeros(
+                    1, 1, self.hidden_dim, device=self.device, dtype=torch.float32
+                ),  # h
+                torch.zeros(
+                    1, 1, self.hidden_dim, device=self.device, dtype=torch.float32
+                ),
+            )  # c
 
             total_reward = 0
             done = False
@@ -57,7 +76,11 @@ class TrainController:
                     break
 
                 obs = self.transform(obs)
-                obs_tensor = torch.from_numpy(np.array(obs, dtype=np.float32)).unsqueeze(0).to(self.device)
+                obs_tensor = (
+                    torch.from_numpy(np.array(obs, dtype=np.float32))
+                    .unsqueeze(0)
+                    .to(self.device)
+                )
                 z, _, _ = self.vae.encoder(obs_tensor)
                 action = controller(z, h[0]).cpu().detach().numpy().flatten()
 
@@ -74,7 +97,6 @@ class TrainController:
             torch.cuda.empty_cache()
             return total_reward
 
-
     def worker_process(self, param_queue, result_queue):
         controller = self.controller.to(self.device)
 
@@ -90,8 +112,7 @@ class TrainController:
 
         torch.cuda.empty_cache()
 
-
-    def train(self, num_iterations=100, population_size=64, num_workers=None):
+    def train_model(self, num_iterations=100, population_size=64, num_workers=None):
         num_workers = num_workers or mp.cpu_count()
         param_queue = mp.Queue()
         result_queue = mp.Queue()
@@ -102,19 +123,30 @@ class TrainController:
             p.start()
             processes.append(p)
 
-        controller_params = torch.nn.utils.parameters_to_vector(self.controller.parameters()).detach().cpu().numpy()
-        cma_es = CMAEvolutionStrategy(controller_params, 0.5, {'popsize': population_size})
+        controller_params = (
+            torch.nn.utils.parameters_to_vector(self.controller.parameters())
+            .detach()
+            .cpu()
+            .numpy()
+        )
+        cma_es = CMAEvolutionStrategy(
+            controller_params, 0.5, {'popsize': population_size}
+        )
 
-        for iteration in tqdm(range(num_iterations), desc="Training Iterations", unit="iteration"):
+        for iteration in tqdm(
+            range(num_iterations), desc="Training Iterations", unit="iteration"
+        ):
             solutions = cma_es.ask()
-            
+
             for solution in solutions:
                 param_queue.put(solution)
 
             rewards = [result_queue.get() for _ in range(len(solutions))]
             cma_es.tell(solutions, [-r for r in rewards])
 
-            print(f"Iter {iteration + 1}/{num_iterations}, Mean Reward: {np.mean(rewards):.2f}, Best Reward: {np.max(rewards):.2f}")
+            print(
+                f"Iter {iteration + 1}/{num_iterations}, Mean Reward: {np.mean(rewards):.2f}, Best Reward: {np.max(rewards):.2f}"
+            )
 
         for _ in range(num_workers):
             param_queue.put(None)
@@ -156,8 +188,8 @@ class TrainController:
 #         device='cuda' if torch.cuda.is_available() else 'cpu'
 #     )
 
-#     trained_controller = train_controller.train(
-#         num_iterations=10, 
-#         population_size=16,  
-#         num_workers=12  
+#     trained_controller = train_controller.train_model(
+#         num_iterations=10,
+#         population_size=16,
+#         num_workers=12
 # )

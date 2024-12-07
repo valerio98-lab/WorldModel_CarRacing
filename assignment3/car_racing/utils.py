@@ -1,40 +1,53 @@
 import torch
 import torch.nn as nn
 import os
+import re
+import glob
 
 from matplotlib import pyplot as plt
 
-torch.manual_seed(42)   
+torch.manual_seed(42)
+
 
 def save_model(model, optimizer=None, epoch=None, model_name=None):
-    torch.save(model.state_dict(), f'{model_name}')
-    
-    if os.path.exists('./checkpoints') == False:
-        os.makedirs('./checkpoints')
+    model_name = model_name.split(".")[0]
+    torch.save(model.state_dict(), f"{model_name}.pt")
 
-    
-    checkpoint = {
-        'epoch': epoch,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict()
-    }
-    torch.save(checkpoint, f'./checkpoints/checkpoint_{epoch}')
+    if os.path.exists("./checkpoints") == False:
+        os.makedirs("./checkpoints")
+
+    checkpoint = {"epoch": epoch, "model_state_dict": model.state_dict()}
+    if optimizer is not None:
+        checkpoint["optimizer_state_dict"] = optimizer.state_dict()
+
+    torch.save(checkpoint, f"./checkpoints/checkpoint_{epoch}.pt")
 
 
 def load_model(model, optimizer=None, model_name=None, epoch=None, load_checkpoint=False):
+    model_name = model_name.split(".")[0]
     if load_checkpoint:
-        checkpoint = torch.load(f'checkpoint_{epoch}')
-        model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        checkpoint = torch.load(f"checkpoint_{epoch}")
+        model.load_state_dict(checkpoint["model_state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
     else:
-        model.load_state_dict(torch.load(f'{model_name}', weights_only=True))
-        print(f"Model loaded from {model_name}")
+        model.load_state_dict(torch.load(f"{model_name}.pt", weights_only=True))
+        print(f"Model loaded from {model_name}.pt")
     return model, optimizer
 
 
+def _search_files(path):
+    return sorted(
+        [
+            f
+            for f in glob.glob(f"{path}_*.pt")
+            if re.match(rf"{re.escape(path)}_\d+\.pt$", f)
+        ]
+    )
 
 
-def test_mdn_with_visualization(mdn, vae, latent_dataloader, real_dataloader, device='cuda'):
+def test_mdn_with_visualization(
+    mdn, vae, latent_dataloader, real_dataloader, device="cuda"
+):
 
     mdn.eval()
     vae.eval()
@@ -53,14 +66,14 @@ def test_mdn_with_visualization(mdn, vae, latent_dataloader, real_dataloader, de
     real_obs = real_obs.to(device)
 
     idx = 0
-    z_t = latent_obs[0, :-1, :] 
-    a_t = actions[0, :-1, :]    
-    z_t1_target = latent_obs[0, 1:, :]  
-    real_frame = real_obs[0]    
+    z_t = latent_obs[0, :-1, :]
+    a_t = actions[0, :-1, :]
+    z_t1_target = latent_obs[0, 1:, :]
+    real_frame = real_obs[0]
 
     with torch.no_grad():
         alpha, mu, sigma, _ = mdn(z_t.unsqueeze(0), a_t.unsqueeze(0))
-        z_t1_pred = mu.squeeze(0) 
+        z_t1_pred = mu.squeeze(0)
 
     with torch.no_grad():
         real_reconstruction = vae.decoder(z_t1_target).cpu()
@@ -80,7 +93,7 @@ def test_mdn_with_visualization(mdn, vae, latent_dataloader, real_dataloader, de
     axes[2].set_title("Predizione MDN")
 
     for ax in axes:
-        ax.axis('off')
+        ax.axis("off")
     plt.tight_layout()
     plt.show()
 
@@ -100,4 +113,3 @@ def test_mdn_with_visualization(mdn, vae, latent_dataloader, real_dataloader, de
             # Loss MDN
             loss = mdn.mdn_loss(alpha, sigma, mu, z_t1_target)
             total_loss += loss.item()
-        
