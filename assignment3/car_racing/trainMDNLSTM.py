@@ -31,10 +31,11 @@ class trainMDNLSTM(nn.Module):
         continuous=True,
         episodes=1000,
         block_size=1000,
+        device="cuda" if torch.cuda.is_available() else "cpu",
     ):
 
         super(trainMDNLSTM, self).__init__()
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = device
         self.batch_size_vae = batch_size_vae
         self.latent_dim = latent_dim
         self.action_dim = action_dim
@@ -45,7 +46,7 @@ class trainMDNLSTM(nn.Module):
 
         self.mdn = mdn_model
         self.vae = vae_model
-        self.vae.eval()
+        self.vae.eval().to(self.device)
 
         self.train_dataset = LatentDataset(
             dataset_path=f"{self.dataset_path}/train.pt",
@@ -106,10 +107,9 @@ class trainMDNLSTM(nn.Module):
     def train(self, epoch):
         self.mdn.train()
         train_loss = 0
-        for latent_obs, act, rew in self.train_dataloader:
+        for latent_obs, act, _ in tqdm(self.train_dataloader):
             latent_obs = latent_obs.to(self.device)
             act = act.to(self.device)
-            rew = rew.to(self.device)
             self.optimizer.zero_grad()
 
             # teacher forcing

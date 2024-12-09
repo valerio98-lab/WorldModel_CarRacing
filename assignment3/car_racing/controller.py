@@ -1,26 +1,28 @@
-import torch 
+import torch
 import torch.nn as nn
 
 torch.manual_seed(42)
 
 
 class Controller(nn.Module):
-    """ Our controller for the car racing environment. a_t = W[z_t, h_t] + b """
+    """Our controller for the car racing environment. a_t = W[z_t, h_t] + b"""
+
     def __init__(self, latent_dim, hidden_dim):
         super(Controller, self).__init__()
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.dz = latent_dim
         self.dh = hidden_dim
         self.n_action = 3
-        self.fc = nn.Linear(self.dz + self.dh, self.n_action).to(torch.float32) #+b implicit in the linear layer
-    
+        self.fc = nn.Linear(self.dz + self.dh, self.n_action).to(torch.float32)
+
     def forward(self, z, h):
         h = h[0]
 
-        x = torch.cat((z,h), dim=1)
+        x = torch.cat((z, h), dim=1)
         x = self.fc(x)
 
-        return torch.tanh(x)
+        return x
+
 
 # if __name__ == "__main__":
 #     controller = Controller(32, 64)

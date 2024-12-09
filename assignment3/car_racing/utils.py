@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import numpy as np
 import os
 import re
 import glob
@@ -45,71 +46,46 @@ def _search_files(path):
     )
 
 
-def test_mdn_with_visualization(
-    mdn, vae, latent_dataloader, real_dataloader, device="cuda"
-):
+def testagent(episode, vae, device="cuda" if torch.cuda.is_available() else "cpu"):
+    # Prendi un episodio a caso
+    # Numero di immagini da plottare
+    num_images_to_plot = np.random.randint(
+        0, len(episode.observations), size=5
+    )  # Indici casuali
 
-    mdn.eval()
-    vae.eval()
+    # Plotta osservazioni e ricostruzioni
+    fig, axes = plt.subplots(5, 2, figsize=(10, 15))  # Layout con 5 righe e 2 colonne
+    for idx, i in enumerate(
+        num_images_to_plot
+    ):  # Usa un contatore per accedere agli assi
+        # Prendi l'osservazione
+        observation = (
+            episode.observations[i].unsqueeze(0).to(device)
+        )  # Aggiunge dimensione batch
 
-    total_loss = 0
-    num_batches = 0
+        # Ottieni la ricostruzione
+        with torch.no_grad():
+            recon, _, _ = vae(observation)
 
-    latent_batch = next(iter(latent_dataloader))
-    real_batch = next(iter(real_dataloader))
+        # Denormalizza le immagini per il plot
+        observation_img = observation.squeeze(0).permute(1, 2, 0).cpu().numpy()
+        observation_img = observation_img  # Denormalizza
 
-    latent_obs, actions, _ = latent_batch
-    real_obs, _, _ = real_batch
+        reconstructed_img = recon.squeeze(0).permute(1, 2, 0).cpu().numpy()
+        reconstructed_img = reconstructed_img  # Denormalizza
 
-    latent_obs = latent_obs.to(device)
-    actions = actions.to(device)
-    real_obs = real_obs.to(device)
+        # Plot a sinistra: osservazione originale
+        axes[idx, 0].imshow(
+            observation_img
+        )  # Usa il contatore `idx` per accedere agli assi
+        axes[idx, 0].axis("off")
+        axes[idx, 0].set_title(f"Osservazione {i + 1}")
 
-    idx = 0
-    z_t = latent_obs[0, :-1, :]
-    a_t = actions[0, :-1, :]
-    z_t1_target = latent_obs[0, 1:, :]
-    real_frame = real_obs[0]
+        # Plot a destra: ricostruzione
+        axes[idx, 1].imshow(reconstructed_img)
+        axes[idx, 1].axis("off")
+        axes[idx, 1].set_title(f"Ricostruzione {i + 1}")
+        observation = observation.cpu()
 
-    with torch.no_grad():
-        alpha, mu, sigma, _ = mdn(z_t.unsqueeze(0), a_t.unsqueeze(0))
-        z_t1_pred = mu.squeeze(0)
-
-    with torch.no_grad():
-        real_reconstruction = vae.decoder(z_t1_target).cpu()
-        pred_reconstruction = vae.decoder(z_t1_pred).cpu()
-    real_episode = real_batch[0]
-    real_frame = real_episode[0][0].squeeze(0)
-    real_frame_np = real_frame.permute(1, 2, 0).cpu().numpy()
-    real_recon_np = real_reconstruction[idx].permute(1, 2, 0).numpy()
-    pred_recon_np = pred_reconstruction[idx].permute(1, 2, 0).numpy()
-
-    _, axes = plt.subplots(1, 3, figsize=(15, 5))
-    axes[0].imshow(real_frame_np)
-    axes[0].set_title("Immagine Reale")
-    axes[1].imshow(real_recon_np)
-    axes[1].set_title("Ricostruzione Reale")
-    axes[2].imshow(pred_recon_np)
-    axes[2].set_title("Predizione MDN")
-
-    for ax in axes:
-        ax.axis("off")
     plt.tight_layout()
     plt.show()
-
-    # Test: calcolo della loss per il batch
-    for batch in latent_dataloader:
-        latent_obs, actions, _ = batch
-        latent_obs = latent_obs.to(device)
-        actions = actions.to(device)
-
-        z_t = latent_obs[:, :-1, :]
-        z_t1_target = latent_obs[:, 1:, :]
-        a_t = actions[:, :-1, :]
-
-        with torch.no_grad():
-            alpha, mu, sigma, _ = mdn(z_t, a_t)
-
-            # Loss MDN
-            loss = mdn.mdn_loss(alpha, sigma, mu, z_t1_target)
-            total_loss += loss.item()

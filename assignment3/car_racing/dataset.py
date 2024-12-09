@@ -33,25 +33,21 @@ class CarRacingDataset(Dataset):
         episode_length=1000,
         continuous=False,
         noise_type=None,
-        mode="frames",
         block_size=1000,
+        flipping=True,
     ):
         self.env = gym.make(id="CarRacing-v2", continuous=continuous)
+        self.horizontal_flip = transforms.RandomHorizontalFlip() if flipping else None
         self.episode_length = episode_length
-        self.mode = mode
         self.batch_size = batch_size
         self.path = path
         self.block_size = block_size
         self.episodes = episodes
         self.noise_type = noise_type
         self.transform = transforms.Compose(
-            [
-                transforms.ToPILImage(),
-                transforms.Resize((64, 64)),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
-            ]
+            [transforms.ToPILImage(), transforms.Resize((64, 64)), transforms.ToTensor()]
         )
+
         if not self.path.endswith(".pt"):
             logging.error("Dataset path must be a .pt file.")
             raise ValueError("Dataset path must be a .pt file.")
@@ -88,6 +84,7 @@ class CarRacingDataset(Dataset):
 
     def catch_data(self):
         data = []
+        lengths = []
         for episodes in tqdm(range(self.episodes)):
             observations, actions, rewards = [], [], []
             obs, _ = self.env.reset()
@@ -105,7 +102,7 @@ class CarRacingDataset(Dataset):
 
                 if done:
                     break
-            self.lengths.append(len(observations))
+            lengths.append(len(observations))
             data.append(
                 Episode(
                     observations=torch.stack(observations),
@@ -114,20 +111,19 @@ class CarRacingDataset(Dataset):
                 )
             )
             if len(data) % self.block_size == 0:
-                torch.save(data, f"{self.path}_{episodes+1}.pt")
-                del data[:]
+                torch.save(data, f"{self.path}_{(episodes+1)}.pt")
+                data = []
                 torch.cuda.empty_cache()
 
         if len(data) > 0:
             torch.save(data, f"{self.path}_{len(data)}.pt")
-            del data[:]
             data = []
             torch.cuda.empty_cache()
 
-        self.avg = int(torch.tensor(self.lengths, dtype=torch.float32).mean().item())
-        self.cut_data()
+        avg = int(torch.tensor(lengths, dtype=torch.float32).mean().item())
+        self.cut_data(avg)
 
-    def cut_data(self):
+    def cut_data(self, avg):
         logging.info("Levelling dataset...")
         path = f"{self.path}_*.pt"
         for dire, _, files in os.walk(path):
@@ -135,11 +131,11 @@ class CarRacingDataset(Dataset):
                 data = torch.load(file)
                 dataset = []
                 for episode in data:
-                    if len(episode.observations) > self.avg:
+                    if len(episode.observations) > avg:
                         episode = Episode(
-                            observations=episode.observations[: self.avg],
-                            actions=episode.actions[: self.avg],
-                            rewards=episode.rewards[: self.avg],
+                            observations=episode.observations[:avg],
+                            actions=episode.actions[:avg],
+                            rewards=episode.rewards[:avg],
                         )
                     dataset.append(episode)
                 torch.save(dataset, os.path.join(dire, file))
@@ -159,30 +155,22 @@ class CarRacingDataset(Dataset):
             raise IndexError(f"Block {block_idx} does not exists.")
 
     def __len__(self):
-        if self.mode == "frames":
-            return sum(len(episode.observations) for episode in self.dataset) + (
-                len(self.dataset_files) - self.current_block - 1
-            ) * len(self.dataset[0].observations)
-        elif self.mode == "episodes":
-            return len(self.dataset_files) * len(self.dataset)
+        return len(self.dataset_files) * len(self.dataset)
 
     def __getitem__(self, idx):
-        if self.mode == "frames":
-            frame_count = 0
-            for block_idx in range(len(self.dataset_files)):
-                self._load_block(block_idx)
-                for episode in self.dataset:
-                    if frame_count + len(episode.observations) > idx:
-                        return episode.observations[idx - frame_count]
-                    frame_count += len(episode.observations)
-            raise IndexError(f"Index {idx} out of range.")
-
-        elif self.mode == "episodes":
-            block_idx = math.ceil(idx / self.block_size) - 1
-            if block_idx != self.current_block:
-                self._load_block(block_idx)
-            episode_idx = idx % len(self.dataset)
-            return self.dataset[episode_idx]
+        block_idx = math.ceil(idx / self.block_size) - 1
+        if block_idx != self.current_block:
+            self._load_block(block_idx)
+        episode_idx = idx % len(self.dataset)
+        episode = self.dataset[episode_idx]
+        if self.horizontal_flip is not None:
+            obs_flipped = [self.horizontal_flip(obs) for obs in episode.observations]
+            episode = Episode(
+                observations=torch.stack(obs_flipped),
+                actions=episode.actions,
+                rewards=episode.rewards,
+            )
+        return episode
 
 
 class LatentDataset(Dataset):
@@ -231,7 +219,7 @@ class LatentDataset(Dataset):
                 "Latent dataset files found: %d.", len(self.latent_dataset_files)
             )
             self.latent_dataset = torch.load(self.latent_dataset_files[0])
-            del self.dataset[:]
+            self.dataset = []
         else:
             logging.info("Latent dataset not found. Creating latent dataset...")
             self.collect_latents()
@@ -241,7 +229,6 @@ class LatentDataset(Dataset):
     def collect_latents(self):
         latents = []
         for idx_f, files in enumerate(self.dataset_files):
-            del self.dataset[:]
             self.dataset = torch.load(files)
 
             for idx_ep, episode in enumerate(self.dataset):
@@ -270,13 +257,12 @@ class LatentDataset(Dataset):
                         latents,
                         f"{self.path}_latent_{((idx_f+1) * (idx_ep+1))}.pt",
                     )
-                    del latents[:]
                     latents = []
                     torch.cuda.empty_cache()
 
             if len(latents) > 0:
                 torch.save(latents, f"{self.path}_{len(latents)}.pt")
-                del latents[:]
+                latents = []
                 torch.cuda.empty_cache()
 
         logging.info("Latent dataset saved at %s.", self.path)
@@ -305,48 +291,73 @@ class LatentDataset(Dataset):
 
 
 # if __name__ == "__main__":
-
-#     logging.basicConfig(
-#         level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+#     dataset = CarRacingDataset(
+#         path="data2/train.pt",
+#         batch_size=32,
+#         episodes=10,
+#         episode_length=10,
+#         continuous=True,
+#         block_size=5,
 #     )
-
-#     vae = VAE(input_channels=3, latent_dim=32)
-#     torch.save(vae.state_dict(), "vae.pt")
-
-#     data = CarRacingDataset(
-#         path="dataset/train.pt",
-#         episodes=100,
-#         episode_length=100,
-#         mode="episodes",
-#         block_size=10,
-#     )
-
-#     dataset = LatentDataset(
-#         dataset_path="dataset/train.pt",
-#         model_path="vae.pt",
-#         episodes=100,
-#         block_size=10,
-#     )
-#     print(len(dataset))
 #     print(dataset[0].observations.shape)
 #     print(dataset[0].actions.shape)
 #     print(dataset[0].rewards.shape)
 
 
-# if __name__ == "__main__":
-#     dataset = CarRacingDataset(path="giggi/dataset.pt", episodes=10, episode_length=100)
-#     print(len(dataset))
-#     print(dataset[0].shape)
-#     latent_dataset = LatentDataset(dataset_path="giggi/dataset.pt", model_path="vae.pt", batch_size=32, latent_dataset_path="latent_dataset.pt")
-#     print(len(latent_dataset))
-#     print(latent_dataset[0].shape)
-#     print(latent_dataset[0].actions.shape)
-#     print(latent_dataset[0].rewards.shape)
-#     print(latent_dataset[0].observations.shape)
-#     print(latent_dataset[0].observations[0].shape)
-#     print(latent_dataset[0].observations[0].dtype)
-#     print(latent_dataset[0].observations[0].device)
-#     print(latent_dataset[0].observations[0].mean())
-#     print(latent_dataset[0].observations[0].std())
-#     print(latent_dataset[0].observations[0].min())
-#     print(latent_dataset[0].observations[0].max())
+import matplotlib.pyplot as plt
+import torch
+from vae import VAE  # Assumo che il tuo VAE sia implementato in vae.py
+
+if __name__ == "__main__":
+    # Inizializza il dataset
+    dataset = CarRacingDataset(
+        path="test_dataset.pt",
+        batch_size=32,
+        episodes=5,  # Numero ridotto di episodi per test
+        episode_length=100,  # Episodi più corti per velocità
+        continuous=True,
+        block_size=5,
+    )
+
+    # Carica un episodio
+    episode = dataset[0]
+
+    # Carica il modello VAE
+    vae = VAE(3, 32)  # Inizializza il tuo modello VAE
+    vae.load_state_dict(
+        torch.load("vae_model.pth")
+    )  # Specifica il path del modello pre-addestrato
+    vae.eval()
+
+    # Numero di immagini da plottare
+    num_images_to_plot = 5
+
+    # Plotta osservazioni e ricostruzioni
+    fig, axes = plt.subplots(num_images_to_plot, 2, figsize=(10, 15))
+    for i in range(num_images_to_plot):
+        # Prendi l'osservazione
+        observation = episode.observations[i].unsqueeze(0)  # Aggiunge dimensione batch
+
+        # Ottieni la ricostruzione
+        with torch.no_grad():
+            _, reconstructed = vae(observation)
+
+        # Denormalizza le immagini per il plot
+        observation_img = observation.squeeze(0).permute(1, 2, 0).numpy()
+        observation_img = observation_img * 0.5 + 0.5  # Denormalizza
+
+        reconstructed_img = reconstructed.squeeze(0).permute(1, 2, 0).numpy()
+        reconstructed_img = reconstructed_img * 0.5 + 0.5  # Denormalizza
+
+        # Plot a sinistra: osservazione originale
+        axes[i, 0].imshow(observation_img)
+        axes[i, 0].axis("off")
+        axes[i, 0].set_title(f"Osservazione {i + 1}")
+
+        # Plot a destra: ricostruzione
+        axes[i, 1].imshow(reconstructed_img)
+        axes[i, 1].axis("off")
+        axes[i, 1].set_title(f"Ricostruzione {i + 1}")
+
+    plt.tight_layout()
+    plt.show()

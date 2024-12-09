@@ -4,6 +4,7 @@ import numpy as np
 import multiprocessing as mp
 from cma import CMAEvolutionStrategy
 import gymnasium as gym
+import logging
 
 from torchvision import transforms
 from utils import load_model, save_model
@@ -44,7 +45,7 @@ class TrainController:
                 transforms.ToPILImage(),
                 transforms.Resize((64, 64)),
                 transforms.ToTensor(),
-                transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+                # transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
             ]
         )
 
@@ -71,9 +72,7 @@ class TrainController:
             total_reward = 0
             done = False
 
-            for _ in range(self.max_steps):
-                if done:
-                    break
+            while not done:
 
                 obs = self.transform(obs)
                 obs_tensor = (
@@ -112,7 +111,7 @@ class TrainController:
 
         torch.cuda.empty_cache()
 
-    def train_model(self, num_iterations=100, population_size=64, num_workers=None):
+    def train_model(self, max_iterations=100, population_size=64, num_workers=None):
         num_workers = num_workers or mp.cpu_count()
         param_queue = mp.Queue()
         result_queue = mp.Queue()
@@ -134,7 +133,7 @@ class TrainController:
         )
 
         for iteration in tqdm(
-            range(num_iterations), desc="Training Iterations", unit="iteration"
+            range(max_iterations), desc="Training Iterations", unit="iteration"
         ):
             solutions = cma_es.ask()
 
@@ -144,8 +143,12 @@ class TrainController:
             rewards = [result_queue.get() for _ in range(len(solutions))]
             cma_es.tell(solutions, [-r for r in rewards])
 
-            print(
-                f"Iter {iteration + 1}/{num_iterations}, Mean Reward: {np.mean(rewards):.2f}, Best Reward: {np.max(rewards):.2f}"
+            logging.info(
+                "Iter %d/%d, Mean Reward: %.2f, Best Reward: %.2f",
+                iteration + 1,
+                episodes,
+                np.mean(rewards),
+                np.max(rewards),
             )
 
         for _ in range(num_workers):

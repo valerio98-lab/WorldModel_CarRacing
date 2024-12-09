@@ -65,9 +65,16 @@ class MDN(nn.Module):
 class MDNLSTM(nn.Module):
     """LSTM + MDN"""
 
-    def __init__(self, latent_dim, action_dim, hidden_dim, num_gaussians=5):
+    def __init__(
+        self,
+        latent_dim,
+        action_dim,
+        hidden_dim,
+        num_gaussians=5,
+        device='cuda' if torch.cuda.is_available() else 'cpu',
+    ):
         super(MDNLSTM, self).__init__()
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.device = device
         self.input_dim = latent_dim + action_dim
         self.lstm = LSTM(self.input_dim, hidden_dim).to(self.device)
         self.mdn = MDN(latent_dim, action_dim, hidden_dim, num_gaussians).to(self.device)
