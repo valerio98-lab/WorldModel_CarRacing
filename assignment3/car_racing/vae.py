@@ -32,7 +32,7 @@ class Encoder(nn.Module):
 
         ##riparametrization trick
         sigma = log_var.exp()  ##to keep sigma > 0
-        epsilon = torch.rand_like(sigma).to(self.device)
+        epsilon = torch.rand_like(sigma)
         z = epsilon.mul(sigma).add_(mu)
 
         return z, mu, log_var

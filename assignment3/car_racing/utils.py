@@ -10,18 +10,19 @@ from matplotlib import pyplot as plt
 torch.manual_seed(42)
 
 
-def save_model(model, optimizer=None, epoch=None, model_name=None):
+def save_model(model, optimizer=None, epoch=None, model_name=None, checkpoint_path=None):
     model_name = model_name.split(".")[0]
     torch.save(model.state_dict(), f"{model_name}.pt")
 
-    if os.path.exists("./checkpoints") == False:
-        os.makedirs("./checkpoints")
+    if checkpoint_path is not None:
+        if os.path.exists(checkpoint_path) == False:
+            os.makedirs(checkpoint_path)
 
     checkpoint = {"epoch": epoch, "model_state_dict": model.state_dict()}
     if optimizer is not None:
         checkpoint["optimizer_state_dict"] = optimizer.state_dict()
 
-    torch.save(checkpoint, f"./checkpoints/checkpoint_{epoch}.pt")
+    torch.save(checkpoint, f"{checkpoint_path}/checkpoint_{epoch}.pt")
 
 
 def load_model(model, optimizer=None, model_name=None, epoch=None, load_checkpoint=False):
@@ -46,46 +47,40 @@ def _search_files(path):
     )
 
 
-def testagent(episode, vae, device="cuda" if torch.cuda.is_available() else "cpu"):
-    # Prendi un episodio a caso
-    # Numero di immagini da plottare
-    num_images_to_plot = np.random.randint(
-        0, len(episode.observations), size=5
-    )  # Indici casuali
+def testagent(episode, vae, mdn, device="cuda" if torch.cuda.is_available() else "cpu"):
+    import matplotlib.pyplot as plt
+    import numpy as np
 
-    # Plotta osservazioni e ricostruzioni
-    fig, axes = plt.subplots(5, 2, figsize=(10, 15))  # Layout con 5 righe e 2 colonne
-    for idx, i in enumerate(
-        num_images_to_plot
-    ):  # Usa un contatore per accedere agli assi
-        # Prendi l'osservazione
-        observation = (
-            episode.observations[i].unsqueeze(0).to(device)
-        )  # Aggiunge dimensione batch
+    num_images_to_plot = np.random.randint(0, len(episode.observations), size=5)
 
-        # Ottieni la ricostruzione
+    fig, axes = plt.subplots(5, 3, figsize=(15, 15))
+    for idx, i in enumerate(num_images_to_plot):
+        observation = episode.observations[i].unsqueeze(0).to(device)
+
         with torch.no_grad():
+            z, _, _ = vae.encoder(observation)
             recon, _, _ = vae(observation)
+            alpha, mu, sigma, _ = mdn(z, episode.actions[i].unsqueeze(0).to(device))
+            sample = mdn.sample(alpha, mu, sigma)
 
-        # Denormalizza le immagini per il plot
+            mdn_reconstructed_img = (
+                vae.decoder(sample).squeeze(0).permute(1, 2, 0).cpu().numpy()
+            )
+
         observation_img = observation.squeeze(0).permute(1, 2, 0).cpu().numpy()
-        observation_img = observation_img  # Denormalizza
-
         reconstructed_img = recon.squeeze(0).permute(1, 2, 0).cpu().numpy()
-        reconstructed_img = reconstructed_img  # Denormalizza
 
-        # Plot a sinistra: osservazione originale
-        axes[idx, 0].imshow(
-            observation_img
-        )  # Usa il contatore `idx` per accedere agli assi
+        axes[idx, 0].imshow(observation_img)
         axes[idx, 0].axis("off")
         axes[idx, 0].set_title(f"Osservazione {i + 1}")
 
-        # Plot a destra: ricostruzione
         axes[idx, 1].imshow(reconstructed_img)
         axes[idx, 1].axis("off")
         axes[idx, 1].set_title(f"Ricostruzione {i + 1}")
-        observation = observation.cpu()
+
+        axes[idx, 2].imshow(mdn_reconstructed_img)
+        axes[idx, 2].axis("off")
+        axes[idx, 2].set_title(f"Ricostruzione MDN {i + 1}")
 
     plt.tight_layout()
     plt.show()

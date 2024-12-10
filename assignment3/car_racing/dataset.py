@@ -286,7 +286,7 @@ class LatentDataset(Dataset):
         block_idx = math.ceil(idx / self.block_size) - 1
         if block_idx != self.current_block:
             self._load_block(block_idx)
-        episode_idx = idx % len(self.latent_dataset_files)
+        episode_idx = idx % len(self.latent_dataset)
         return self.latent_dataset[episode_idx]
 
 
@@ -304,60 +304,60 @@ class LatentDataset(Dataset):
 #     print(dataset[0].rewards.shape)
 
 
-import matplotlib.pyplot as plt
-import torch
-from vae import VAE  # Assumo che il tuo VAE sia implementato in vae.py
+# import matplotlib.pyplot as plt
+# import torch
+# from vae import VAE  # Assumo che il tuo VAE sia implementato in vae.py
 
-if __name__ == "__main__":
-    # Inizializza il dataset
-    dataset = CarRacingDataset(
-        path="test_dataset.pt",
-        batch_size=32,
-        episodes=5,  # Numero ridotto di episodi per test
-        episode_length=100,  # Episodi più corti per velocità
-        continuous=True,
-        block_size=5,
-    )
+# if __name__ == "__main__":
+#     # Inizializza il dataset
+#     dataset = CarRacingDataset(
+#         path="test_dataset.pt",
+#         batch_size=32,
+#         episodes=5,  # Numero ridotto di episodi per test
+#         episode_length=100,  # Episodi più corti per velocità
+#         continuous=True,
+#         block_size=5,
+#     )
 
-    # Carica un episodio
-    episode = dataset[0]
+#     # Carica un episodio
+#     episode = dataset[0]
 
-    # Carica il modello VAE
-    vae = VAE(3, 32)  # Inizializza il tuo modello VAE
-    vae.load_state_dict(
-        torch.load("vae_model.pth")
-    )  # Specifica il path del modello pre-addestrato
-    vae.eval()
+#     # Carica il modello VAE
+#     vae = VAE(3, 32)  # Inizializza il tuo modello VAE
+#     vae.load_state_dict(
+#         torch.load("vae_model.pth")
+#     )  # Specifica il path del modello pre-addestrato
+#     vae.eval()
 
-    # Numero di immagini da plottare
-    num_images_to_plot = 5
+#     # Numero di immagini da plottare
+#     num_images_to_plot = 5
 
-    # Plotta osservazioni e ricostruzioni
-    fig, axes = plt.subplots(num_images_to_plot, 2, figsize=(10, 15))
-    for i in range(num_images_to_plot):
-        # Prendi l'osservazione
-        observation = episode.observations[i].unsqueeze(0)  # Aggiunge dimensione batch
+#     # Plotta osservazioni e ricostruzioni
+#     fig, axes = plt.subplots(num_images_to_plot, 2, figsize=(10, 15))
+#     for i in range(num_images_to_plot):
+#         # Prendi l'osservazione
+#         observation = episode.observations[i].unsqueeze(0)  # Aggiunge dimensione batch
 
-        # Ottieni la ricostruzione
-        with torch.no_grad():
-            _, reconstructed = vae(observation)
+#         # Ottieni la ricostruzione
+#         with torch.no_grad():
+#             _, reconstructed = vae(observation)
 
-        # Denormalizza le immagini per il plot
-        observation_img = observation.squeeze(0).permute(1, 2, 0).numpy()
-        observation_img = observation_img * 0.5 + 0.5  # Denormalizza
+#         # Denormalizza le immagini per il plot
+#         observation_img = observation.squeeze(0).permute(1, 2, 0).numpy()
+#         observation_img = observation_img * 0.5 + 0.5  # Denormalizza
 
-        reconstructed_img = reconstructed.squeeze(0).permute(1, 2, 0).numpy()
-        reconstructed_img = reconstructed_img * 0.5 + 0.5  # Denormalizza
+#         reconstructed_img = reconstructed.squeeze(0).permute(1, 2, 0).numpy()
+#         reconstructed_img = reconstructed_img * 0.5 + 0.5  # Denormalizza
 
-        # Plot a sinistra: osservazione originale
-        axes[i, 0].imshow(observation_img)
-        axes[i, 0].axis("off")
-        axes[i, 0].set_title(f"Osservazione {i + 1}")
+#         # Plot a sinistra: osservazione originale
+#         axes[i, 0].imshow(observation_img)
+#         axes[i, 0].axis("off")
+#         axes[i, 0].set_title(f"Osservazione {i + 1}")
 
-        # Plot a destra: ricostruzione
-        axes[i, 1].imshow(reconstructed_img)
-        axes[i, 1].axis("off")
-        axes[i, 1].set_title(f"Ricostruzione {i + 1}")
+#         # Plot a destra: ricostruzione
+#         axes[i, 1].imshow(reconstructed_img)
+#         axes[i, 1].axis("off")
+#         axes[i, 1].set_title(f"Ricostruzione {i + 1}")
 
-    plt.tight_layout()
-    plt.show()
+#     plt.tight_layout()
+#     plt.show()

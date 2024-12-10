@@ -31,6 +31,8 @@ class trainMDNLSTM(nn.Module):
         continuous=True,
         episodes=1000,
         block_size=1000,
+        from_pretrained=False,
+        checkpoint_path="mdn_checkpoints",
         device="cuda" if torch.cuda.is_available() else "cpu",
     ):
 
@@ -43,6 +45,8 @@ class trainMDNLSTM(nn.Module):
         self.dataset_path = dataset_path
         self.epochs = epochs
         self.continuous = continuous
+        self.checkpoint_path = checkpoint_path
+        self.from_pretrained = from_pretrained
 
         self.mdn = mdn_model
         self.vae = vae_model
@@ -90,7 +94,7 @@ class trainMDNLSTM(nn.Module):
             collate_fn=self.collate_fn,
         )
 
-        self.optimizer = torch.optim.Adam(self.mdn.parameters(), lr=1e-3)
+        self.optimizer = torch.optim.Adam(self.mdn.parameters(), lr=1e-4)
         # self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, patience=5)
 
     def collate_fn(self, batch):
@@ -107,6 +111,8 @@ class trainMDNLSTM(nn.Module):
     def train(self, epoch):
         self.mdn.train()
         train_loss = 0
+        print(f"Dataset length: {len(self.train_dataset)}")
+
         for latent_obs, act, _ in tqdm(self.train_dataloader):
             latent_obs = latent_obs.to(self.device)
             act = act.to(self.device)
@@ -186,14 +192,29 @@ class trainMDNLSTM(nn.Module):
 
         return test_loss / len(self.test_dataloader.dataset)
 
-    def train_model(self):
+    def train_model(self, from_pretrained=False, checkpoint_path=None):
 
         logging.info("Training model...")
+        s = 0
+        if from_pretrained:
+            checkpoint = torch.load(checkpoint_path)
+            self.mdn.load_state_dict(checkpoint["model_state_dict"])
+            s = checkpoint["epoch"]
+            self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+            logging.info("Models loaded from checkpoint")
+
         for epoch in tqdm(
-            iterable=range(self.epochs), desc="Epochs", leave=False, unit="epoch"
+            iterable=range(s, self.epochs), desc="Epochs", leave=False, unit="epoch"
         ):
             self.train(epoch)
             self.validation(epoch)
+            save_model(
+                model=self.mdn,
+                optimizer=self.optimizer,
+                epoch=epoch,
+                model_name="mdn_lstm",
+                checkpoint_path="mdn_checkpoints",
+            )
             # self.scheduler.step(val_loss)
             torch.cuda.empty_cache()
 

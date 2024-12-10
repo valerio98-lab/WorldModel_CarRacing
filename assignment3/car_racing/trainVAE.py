@@ -36,9 +36,8 @@ class trainVAE(nn.Module):
         self.latent_dim = latent_dim
         self.batch_size = batch_size
         self.vae = vae
-
         self.optimizer = optim.Adam(self.vae.parameters(), lr=1e-4)
-        warmup_steps = 1000
+        # warmup_steps = 1000
         # self.scheduler = LambdaLR(
         #     self.optimizer, lr_lambda=lambda step: min(1.0, step / warmup_steps)
         # )
@@ -182,10 +181,16 @@ class trainVAE(nn.Module):
         )
         torch.cuda.empty_cache()
 
-    def train_model(self):
+    def train_model(self, from_pretrained=False, checkpoint_path=None):
 
         logging.info("Training model...")
-        for epoch in tqdm(iterable=range(self.epochs), desc="Epochs", unit="epoch"):
+        s = 0
+        if from_pretrained:
+            checkpoint = torch.load(checkpoint_path)
+            self.vae.load_state_dict(checkpoint["model_state_dict"])
+            s = checkpoint["epoch"]
+            logging.info("Model loaded from vae.pt")
+        for epoch in tqdm(iterable=range(s, self.epochs), desc="Epochs", unit="epoch"):
             logging.info("Epoch: %d", epoch)
             self.train(epoch)
             self.validation(epoch)
@@ -199,6 +204,7 @@ class trainVAE(nn.Module):
                 optimizer=self.optimizer,
                 epoch=epoch,
                 model_name='vae.pt',
+                checkpoint_path="vae_checkpoints",
             )
             torch.cuda.empty_cache()
 

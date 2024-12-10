@@ -16,12 +16,29 @@ class Controller(nn.Module):
         self.fc = nn.Linear(self.dz + self.dh, self.n_action).to(torch.float32)
 
     def forward(self, z, h):
-        h = h[0]
 
-        x = torch.cat((z, h), dim=1)
-        x = self.fc(x)
+        x = torch.cat([z, h], dim=-1)
+        x = torch.tanh(self.fc(x))
 
         return x
+
+    def set_controller_parameters(self, params):
+        num_weights = self.fc.weight.numel()
+        num_biases = self.fc.bias.numel()
+        weight_shape = self.fc.weight.shape
+
+        if len(params) != num_weights + num_biases:
+            raise ValueError(
+                f"Expected {num_weights + num_biases} parameters, got {len(params)}."
+            )
+        with torch.no_grad():
+            self.fc.weight.data = torch.tensor(
+                params[:num_weights], dtype=torch.float32
+            ).view(weight_shape)
+
+            self.fc.bias = torch.nn.Parameter(
+                torch.tensor(params[num_weights:], dtype=torch.float32)
+            )
 
 
 # if __name__ == "__main__":
