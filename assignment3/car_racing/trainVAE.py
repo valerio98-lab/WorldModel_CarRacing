@@ -178,10 +178,10 @@ class trainVAE(nn.Module):
         logging.info("Training model...")
         s = 0
         if from_pretrained:
-            checkpoint = torch.load(checkpoint_path)
+            checkpoint = torch.load(checkpoint_path, map_location=self.device)
             self.vae.load_state_dict(checkpoint["model_state_dict"])
             s = checkpoint["epoch"]
-            logging.info(f"Model loaded from {checkpoint_path}")
+            logging.info("Model loaded from %s", checkpoint_path)
         for epoch in tqdm(iterable=range(s, self.epochs), desc="Epochs", unit="epoch"):
             logging.info("Epoch: %d", epoch)
             self.train(epoch)

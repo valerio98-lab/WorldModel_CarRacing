@@ -45,6 +45,8 @@ class Policy(nn.Module):
         num_workers=12,
         block_size=10,
         device_controller='cpu',
+        save_model_path='model.pt',
+        load_model_path='model.pt',
         train_control_onlyVAE=False,
     ):
 
@@ -57,7 +59,7 @@ class Policy(nn.Module):
 
         self.continuous = True
         self.device_controller = device_controller
-        self.device = 'cpu'  #'cuda' if torch.cuda.is_available() else 'cpu'
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.action_dim = 3 if self.continuous else 1
         self.block_size = block_size
         self.dataset_path = dataset_path
@@ -78,6 +80,8 @@ class Policy(nn.Module):
         self.train_control_onlyVAE = train_control_onlyVAE
         self.hidden_state = None
         self.num_generations = 1
+        self.save_model_path = save_model_path
+        self.load_model_path = load_model_path
         self.transform = transforms.Compose(
             [
                 transforms.ToPILImage(),
@@ -221,7 +225,7 @@ class Policy(nn.Module):
                 hidden_dim=self.hidden_dim,
                 action_dim=self.action_dim,
                 num_generations=self.num_generations,
-                rollouts=3,
+                rollouts=1,
                 device=self.device,
             )
         train_controller.train_model()
@@ -233,12 +237,12 @@ class Policy(nn.Module):
                 'mdn_state_dict': self.mdn.state_dict(),
                 'controller_state_dict': self.controller.state_dict(),
             },
-            'model_test.pt',
+            self.save_model_path,
         )
         logging.info('Model saved')
 
     def load(self):
-        checkpoint = torch.load('model_test.pt', map_location=self.device)
+        checkpoint = torch.load(self.load_model_path, map_location=self.device)
         self.vae.load_state_dict(checkpoint['vae_state_dict'])
         self.mdn.load_state_dict(checkpoint['mdn_state_dict'])
         self.controller.load_state_dict(checkpoint['controller_state_dict'])

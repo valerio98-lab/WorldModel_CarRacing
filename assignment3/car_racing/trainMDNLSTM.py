@@ -194,7 +194,7 @@ class trainMDNLSTM(nn.Module):
         logging.info("Training model...")
         s = 0
         if from_pretrained:
-            checkpoint = torch.load(checkpoint_path)
+            checkpoint = torch.load(checkpoint_path, map_location=self.device)
             self.mdn.load_state_dict(checkpoint["model_state_dict"])
             s = checkpoint["epoch"]
             self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])

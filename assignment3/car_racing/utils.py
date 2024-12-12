@@ -4,6 +4,7 @@ import numpy as np
 import os
 import re
 import glob
+from pathlib import Path
 
 torch.manual_seed(42)
 
@@ -23,14 +24,23 @@ def save_model(model, optimizer=None, epoch=None, model_name=None, checkpoint_pa
     torch.save(checkpoint, f"{checkpoint_path}/checkpoint_{epoch}.pt")
 
 
-def load_model(model, optimizer=None, model_name=None, epoch=None, load_checkpoint=False):
+def load_model(
+    model,
+    optimizer=None,
+    model_name=None,
+    epoch=None,
+    load_checkpoint=False,
+    device="cuda" if torch.cuda.is_available() else "cpu",
+):
     model_name = model_name.split(".")[0]
     if load_checkpoint:
-        checkpoint = torch.load(f"checkpoint_{epoch+1}")
+        checkpoint = torch.load(f"checkpoint_{epoch+1}", map_location=device)
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
     else:
-        model.load_state_dict(torch.load(f"{model_name}.pt", weights_only=True))
+        model.load_state_dict(
+            torch.load(f"{model_name}.pt", weights_only=True, map_location=device)
+        )
         print(f"Model loaded from {model_name}.pt")
     return model, optimizer
 
@@ -38,9 +48,9 @@ def load_model(model, optimizer=None, model_name=None, epoch=None, load_checkpoi
 def search_files(path):
     return sorted(
         [
-            f
+            Path(f)
             for f in glob.glob(f"{path}_*.pt")
-            if re.match(rf"{re.escape(path)}_\d+\.pt$", f)
+            if Path(f).stem.split("_")[0] == Path(path).stem
         ]
     )
 
