@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from torch.optim.lr_scheduler import LambdaLR
 from torch import optim
 import logging
 from tqdm import tqdm
@@ -37,11 +36,6 @@ class trainVAE(nn.Module):
         self.batch_size = batch_size
         self.vae = vae
         self.optimizer = optim.Adam(self.vae.parameters(), lr=1e-4)
-        # warmup_steps = 1000
-        # self.scheduler = LambdaLR(
-        #     self.optimizer, lr_lambda=lambda step: min(1.0, step / warmup_steps)
-        # )
-        # self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, patience=5)
 
         train_episodes = int(episodes * 0.8)
         val_episodes = int(episodes * 0.1)
@@ -125,8 +119,6 @@ class trainVAE(nn.Module):
                 train_loss += loss.item()
                 self.optimizer.step()
 
-                # self.scheduler.step()
-
                 total_frames += minibatch.size(0)
                 minibatch = minibatch.to("cpu")
                 recon = recon.to("cpu")
@@ -189,16 +181,12 @@ class trainVAE(nn.Module):
             checkpoint = torch.load(checkpoint_path)
             self.vae.load_state_dict(checkpoint["model_state_dict"])
             s = checkpoint["epoch"]
-            logging.info("Model loaded from vae.pt")
+            logging.info(f"Model loaded from {checkpoint_path}")
         for epoch in tqdm(iterable=range(s, self.epochs), desc="Epochs", unit="epoch"):
             logging.info("Epoch: %d", epoch)
             self.train(epoch)
             self.validation(epoch)
-            # if epoch in (0, 1, 2, 3, 5, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19):
-            #     ep = self.dataset_test[0]
-            #     testagent(ep, self.vae, self.device)
-            # val_loss = self.validation(epoch)
-            # self.scheduler.step(val_loss)
+
             save_model(
                 model=self.vae,
                 optimizer=self.optimizer,
@@ -214,51 +202,3 @@ class trainVAE(nn.Module):
         torch.cuda.empty_cache()
 
         return self.vae
-
-
-# if __name__ == "__main__":
-#     import logging
-
-#     import matplotlib.pyplot as plt
-
-#     def show_reconstructions(model, dataloader, device):
-#         model.eval()
-#         with torch.no_grad():
-#             for batch in dataloader:
-#                 batch = batch.to(device)
-#                 recon, _, _ = model(batch)
-#                 # Mostra le immagini originali e quelle ricostruite
-#                 fig, axes = plt.subplots(2, 10, figsize=(15, 3))
-#                 for i in range(10):
-#                     # Mostra le immagini originali
-#                     axes[0, i].imshow(
-#                         batch[i].cpu().permute(1, 2, 0).squeeze(), cmap='gray'
-#                     )
-#                     axes[0, i].axis('off')
-#                     # Mostra le ricostruzioni
-#                     axes[1, i].imshow(
-#                         recon[i].cpu().permute(1, 2, 0).squeeze(), cmap='gray'
-#                     )
-#                     axes[1, i].axis('off')
-#                 plt.show()
-#                 break
-
-#     # Mostra le ricostruzioni usando il dataloader di test
-
-# logging.basicConfig(
-#     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-# )
-# model = trainVAE(
-#     dataset_path="./dataset_test",
-#     vae=VAE(input_channels=3, latent_dim=32).to,
-#     input_channels=3,
-#     latent_dim=32,
-#     batch_size=32,
-#     epochs=2,
-#     episodes=300,
-#     episode_length=500,
-#     block_size=100,
-# )  # 300,500
-# model.train_model()
-# vae = model.vae
-# show_reconstructions(vae, model.test_loader, model.device)

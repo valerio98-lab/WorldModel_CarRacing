@@ -7,7 +7,6 @@ import gymnasium as gym
 import logging
 
 from torchvision import transforms
-from utils import load_model, save_model
 from vae import VAE
 from MDNLSTM import MDNLSTM
 from tqdm import tqdm
@@ -81,7 +80,8 @@ class TrainController:
                     .to(self.device)
                 )
                 z, _, _ = self.vae.encoder(obs_tensor)
-                action = controller(z, h[0]).cpu().detach().numpy().flatten()
+
+                action = controller(z.unsqueeze(0), h[0]).cpu().detach().numpy().flatten()
 
                 obs, reward, terminated, truncated, _ = self.env.step(action)
                 if render:
@@ -91,7 +91,7 @@ class TrainController:
                 done = terminated or truncated
 
                 a = torch.tensor(action, dtype=torch.float32).to(self.device)
-                _, _, _, h = self.mdn_lstm(z, a, h)
+                _, _, _, h = self.mdn_lstm(z, a.unsqueeze(0), h)
 
             torch.cuda.empty_cache()
             return total_reward
@@ -146,7 +146,7 @@ class TrainController:
             logging.info(
                 "Iter %d/%d, Mean Reward: %.2f, Best Reward: %.2f",
                 iteration + 1,
-                episodes,
+                max_iterations,
                 np.mean(rewards),
                 np.max(rewards),
             )
@@ -159,40 +159,3 @@ class TrainController:
         torch.cuda.empty_cache()
 
         return self.controller
-
-
-# if __name__ == "__main__":
-#     from controller import Controller
-#     from MDNLSTM import MDNLSTM_Controller
-
-#     mp.set_start_method('spawn')
-
-#     latent_dim = 32
-#     hidden_dim = 256
-#     action_dim = 3
-#     input_channels = 3
-#     vae_path = './vae.pt'
-#     mdn_lstm_path = './mdn_lstm.pt'
-
-
-#     train_controller = TrainController(
-#         controller_cls=Controller,
-#         vae_cls=VAE,
-#         mdn_lstm_cls=MDNLSTM_Controller,
-#         vae_path=vae_path,
-#         mdn_lstm_path=mdn_lstm_path,
-#         latent_dim=latent_dim,
-#         hidden_dim=hidden_dim,
-#         action_dim=action_dim,
-#         input_channels=input_channels,
-#         env_name='CarRacing-v2',
-#         rollout_per_worker=10,
-#         max_steps=500,
-#         device='cuda' if torch.cuda.is_available() else 'cpu'
-#     )
-
-#     trained_controller = train_controller.train_model(
-#         num_iterations=10,
-#         population_size=16,
-#         num_workers=12
-# )

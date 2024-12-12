@@ -39,12 +39,3 @@ class Controller(nn.Module):
             self.fc.bias = torch.nn.Parameter(
                 torch.tensor(params[num_weights:], dtype=torch.float32)
             )
-
-
-# if __name__ == "__main__":
-#     controller = Controller(32, 64)
-#     print(controller)
-#     z = torch.randn(1, 32)
-#     h = torch.randn(1, 64)
-#     print(controller(z, h))
-#     print(controller(z, h).shape)

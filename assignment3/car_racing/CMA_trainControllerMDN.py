@@ -44,6 +44,10 @@ class CMAESControllerTrainer_MDN:
             ]
         )
 
+        self.vae = self.vae.to(self.device)
+        self.mdn = self.mdn.to(self.device)
+        self.controller = self.controller.to(self.device)
+
     def rollout(self, params):
         self.controller.set_controller_parameters(params)
         total_reward = 0
@@ -62,7 +66,7 @@ class CMAESControllerTrainer_MDN:
                 with torch.no_grad():
                     obs_tensor = self.transform(obs).unsqueeze(0).to(self.device)
 
-                    z, _, _ = self.vae.encoder(obs_tensor)  # Pass through the VAE encoder
+                    z, _, _ = self.vae.encoder(obs_tensor)
                     z = z.to('cpu')
                     h_0 = h[0].squeeze(0).to('cpu')
 
@@ -118,10 +122,6 @@ class CMAESControllerTrainer_MDN:
             print(
                 f"Generation {generation + 1}/{self.num_generations}, Mean Reward: {mean_reward:.4f}, Best Reward: {best_reward:.4f}"
             )
-
-            if generation > 5 and abs(mean_rewards[-1] - mean_rewards[-5]) < 1e-3:
-                print("Early stopping triggered.")
-                break
 
         torch.cuda.empty_cache()
         best_params = es.result.xbest

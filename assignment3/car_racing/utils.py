@@ -5,8 +5,6 @@ import os
 import re
 import glob
 
-from matplotlib import pyplot as plt
-
 torch.manual_seed(42)
 
 
@@ -28,7 +26,7 @@ def save_model(model, optimizer=None, epoch=None, model_name=None, checkpoint_pa
 def load_model(model, optimizer=None, model_name=None, epoch=None, load_checkpoint=False):
     model_name = model_name.split(".")[0]
     if load_checkpoint:
-        checkpoint = torch.load(f"checkpoint_{epoch}")
+        checkpoint = torch.load(f"checkpoint_{epoch+1}")
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
     else:
@@ -37,7 +35,7 @@ def load_model(model, optimizer=None, model_name=None, epoch=None, load_checkpoi
     return model, optimizer
 
 
-def _search_files(path):
+def search_files(path):
     return sorted(
         [
             f

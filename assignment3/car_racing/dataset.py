@@ -7,11 +7,12 @@ import math
 import glob
 import logging
 import re
+from pathlib import Path
 
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from dataclasses import dataclass
-from utils import load_model, _search_files
+from utils import load_model, search_files
 from vae import VAE
 
 torch.manual_seed(42)
@@ -32,7 +33,6 @@ class CarRacingDataset(Dataset):
         episodes=10000,
         episode_length=1000,
         continuous=False,
-        noise_type=None,
         block_size=1000,
         flipping=True,
     ):
@@ -43,7 +43,6 @@ class CarRacingDataset(Dataset):
         self.path = path
         self.block_size = block_size
         self.episodes = episodes
-        self.noise_type = noise_type
         self.transform = transforms.Compose(
             [transforms.ToPILImage(), transforms.Resize((64, 64)), transforms.ToTensor()]
         )
@@ -59,7 +58,7 @@ class CarRacingDataset(Dataset):
         n_files = math.ceil(episodes / self.block_size)
         self.current_block = 0
 
-        self.dataset_files = _search_files(self.path)
+        self.dataset_files = search_files(self.path)
 
         if len(self.dataset_files) == n_files:
             logging.info(
@@ -79,7 +78,7 @@ class CarRacingDataset(Dataset):
                 filename,
             )
             self.catch_data()
-            self.dataset_files = _search_files(self.path)
+            self.dataset_files = search_files(self.path)
             self.dataset = torch.load(self.dataset_files[0])
 
     def catch_data(self):
@@ -89,9 +88,7 @@ class CarRacingDataset(Dataset):
             observations, actions, rewards = [], [], []
             obs, _ = self.env.reset()
             for _ in range(self.episode_length):
-                action = self.env.action_space.sample()  # noise_type='white'
-                if self.noise_type == "brownian":
-                    action = self.brownian_noise(action)
+                action = self.env.action_space.sample()
 
                 next_obs, reward, done, _, _ = self.env.step(action)
                 obs_tensor = self.transform(obs)
@@ -116,7 +113,9 @@ class CarRacingDataset(Dataset):
                 torch.cuda.empty_cache()
 
         if len(data) > 0:
-            torch.save(data, f"{self.path}_{len(data)}.pt")
+            directory = os.path.dirname(self.path)
+            filename = os.path.basename(self.path)
+            torch.save(data, os.path.join(directory, f"{filename}_{len(data)}.pt"))
             data = []
             torch.cuda.empty_cache()
 
@@ -140,12 +139,6 @@ class CarRacingDataset(Dataset):
                     dataset.append(episode)
                 torch.save(dataset, os.path.join(dire, file))
         logging.info("Dataset levelled.")
-
-    def brownian_noise(self, action):
-        action = action + np.random.normal(0, 0.1, 3)
-        action = np.clip(action, -1, 1)
-
-        return action
 
     def _load_block(self, block_idx):
         if block_idx < len(self.dataset_files):
@@ -199,8 +192,8 @@ class LatentDataset(Dataset):
         n_files = math.ceil(episodes / self.block_size)
 
         self.path = dataset_path.split(".pt")[0]
-        self.dataset_files = _search_files(self.path)
-        self.latent_dataset_files = _search_files(f"{self.path}_latent")
+        self.dataset_files = search_files(self.path)
+        self.latent_dataset_files = search_files(f"{self.path}_latent")
         self.current_block = 0
 
         if len(self.dataset_files) >= n_files:
@@ -223,7 +216,7 @@ class LatentDataset(Dataset):
         else:
             logging.info("Latent dataset not found. Creating latent dataset...")
             self.collect_latents()
-            self.latent_dataset_files = _search_files(f"{self.path}_latent")
+            self.latent_dataset_files = search_files(f"{self.path}_latent")
             self.latent_dataset = torch.load(self.latent_dataset_files[0])
 
     def collect_latents(self):
@@ -239,9 +232,7 @@ class LatentDataset(Dataset):
                         mini_batch = episode.observations[idx:end].to(self.device)
                         z, _, _ = self.vae.encoder(mini_batch)
                         latent_obs.append(z.cpu())
-
                 latent_obs = torch.cat(latent_obs, dim=0)
-                # print(f"Latent observations shape for episode: {latent_obs.shape}")
 
                 latents.append(
                     Episode(
@@ -250,8 +241,7 @@ class LatentDataset(Dataset):
                         rewards=episode.rewards,
                     )
                 )
-                # print(f"Number of episodes in latent dataset: {len(latents)}")
-
+                print(self.block_size)
                 if len(latents) % self.block_size == 0:
                     torch.save(
                         latents,
@@ -261,7 +251,7 @@ class LatentDataset(Dataset):
                     torch.cuda.empty_cache()
 
             if len(latents) > 0:
-                torch.save(latents, f"{self.path}_{len(latents)}.pt")
+                torch.save(latents, f"{self.path}_latent_{len(latents)}.pt")
                 latents = []
                 torch.cuda.empty_cache()
 

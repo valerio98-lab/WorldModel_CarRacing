@@ -1,12 +1,11 @@
+import multiprocessing as mp
+from functools import partial
+
 import torch
 import cma
-from PIL import Image
-import numpy as np
 import matplotlib.pyplot as plt
 import gymnasium as gym
 from tqdm import tqdm
-import multiprocessing as mp
-from functools import partial
 import torchvision.transforms as transforms
 
 from MDNLSTM import MDNLSTM
@@ -27,21 +26,7 @@ class CMAESControllerTrainer:
         rollout_per_worker=1,
         device='cuda' if torch.cuda.is_available() else 'cpu',
     ):
-        """
-        Classe per gestire il training di un controller usando CMA-ES.
 
-        Parametri:
-            controller: Il controller da addestrare.
-            vae: Il modello VAE utilizzato per ottenere la rappresentazione latente.
-            mdnrnn: Il modello MDN-RNN utilizzato (anche se qui potrebbe non essere esplicitamente sfruttato).
-            env: L'environment gymnasium.
-            latent_size: Dimensione del vettore latente del VAE.
-            hidden_size: Dimensione dello stato nascosto utilizzato dal controller.
-            action_size: Dimensione del vettore di azione.
-            num_generations: Numero di generazioni CMA-ES da eseguire.
-            num_workers: Numero di processi in parallelo per la valutazione.
-            device: Dispositivo su cui eseguire i calcoli (es. 'cuda' o 'cpu').
-        """
         self.controller = controller
         self.vae = vae
         self.mdn = mdn
@@ -59,19 +44,7 @@ class CMAESControllerTrainer:
             [transforms.ToPILImage(), transforms.Resize((64, 64)), transforms.ToTensor()]
         )
 
-    # def _preprocess_observation(self, obs):
-
-    #     obs_tensor = self.transform(obs).unsqueeze(0).to(self.device)
-    #     return obs_tensor
-
-    def _worker_routine(self, params):
-        """
-        Valuta il controller su num_episodes episodi, utilizzando i parametri forniti.
-        Restituisce la ricompensa media ottenuta.
-        """
-        mdn = MDNLSTM(32, 3, 256, 5)
-        checkpoint = torch.load('mdn_checkpoints/checkpoint_29.pt')
-        mdn.load_state_dict(checkpoint['model_state_dict'])
+    def worker_routine(self, params):
         self.controller.set_controller_parameters(params)
         total_reward = 0
         env = gym.make("CarRacing-v2")
@@ -100,51 +73,35 @@ class CMAESControllerTrainer:
         torch.cuda.empty_cache()
         return total_reward / self.rollout_per_worker
 
-    def _plot_mean_rewards(
-        self, mean_rewards, output_path="./mean_reward_evolution_mdn.png"
-    ):
-        """
-        Plotta l'evoluzione della ricompensa media per generazione.
-        """
+    def plot_mean_rewards(self, means, output_path="./mean_reward_evolution_mdn.png"):
+
         plt.figure(figsize=(10, 6))
-        plt.plot(range(1, len(mean_rewards) + 1), mean_rewards, label='Mean Reward')
+        plt.plot(range(1, len(means) + 1), means, label='Mean Reward')
         plt.xlabel("Generation")
         plt.ylabel("Mean Reward")
-        plt.title("Evolution of the Mean Reward Over Generations")
         plt.legend()
         plt.grid()
         plt.savefig(output_path)
         plt.close()
 
     def train_model(self):
-        """
-        Esegue il training del controller utilizzando CMA-ES:
-        - Genera candidati
-        - Valuta in parallelo
-        - Aggiorna i parametri CMA-ES
-        - Verifica early stopping
-        - Plotta i risultati
-        """
+
         print("Training the controller using CMA-ES...")
 
         num_params = sum(
             p.numel() for p in self.controller.parameters() if p.requires_grad
         )
 
-        # Inizializza CMA-ES
         es = cma.CMAEvolutionStrategy(num_params * [0], 0.5)
 
-        mean_rewards = []
+        means = []
 
-        # Pool di processi per la valutazione parallela
         with mp.Pool(processes=self.num_workers) as pool:
-            evaluate_partial = partial(self._worker_routine)
+            evaluate_partial = partial(self.worker_routine)
 
             for generation in range(self.num_generations):
-                # Genera soluzioni candidato
                 solutions = es.ask()
 
-                # Valuta le soluzioni in parallelo
                 rewards = list(
                     tqdm(
                         pool.imap(evaluate_partial, solutions),
@@ -153,15 +110,13 @@ class CMAESControllerTrainer:
                     )
                 )
 
-                # CMA-ES minimizza, invertiamo il segno delle ricompense
                 neg_rewards = [-r for r in rewards]
                 es.tell(solutions, neg_rewards)
                 es.logger.add()
                 es.disp()
 
-                # Calcolo della media e della migliore ricompensa
                 mean_reward = -sum(neg_rewards) / len(neg_rewards)
-                mean_rewards.append(mean_reward)
+                means.append(mean_reward)
                 best_reward = -min(neg_rewards)
 
                 print(
@@ -169,16 +124,10 @@ class CMAESControllerTrainer:
                     f"Mean Reward: {mean_reward:.4f}, Best Reward: {best_reward:.4f}"
                 )
 
-                # Early stopping se non migliora
-                if generation > 5 and abs(mean_rewards[-1] - mean_rewards[-5]) < 1e-3:
-                    print("Early stopping triggered.")
-                    break
-
         torch.cuda.empty_cache()
         best_params = es.result.xbest
-        self.controller.set_params(best_params)
+        self.controller.set_controller_parameters(best_params)
 
-        # Plot dei risultati
-        self._plot_mean_rewards(mean_rewards, output_path="./mean_reward_evolution.png")
+        self.plot_mean_rewards(means, output_path="./mean_reward_evolution.png")
 
         return self.controller, best_params

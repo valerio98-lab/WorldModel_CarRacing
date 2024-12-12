@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import os
 from tqdm import tqdm
 import logging
 
@@ -8,9 +7,8 @@ from torch.utils.data import DataLoader
 from MDNLSTM import MDNLSTM
 from vae import VAE
 from dataset import LatentDataset, Episode
-from utils import save_model, load_model
+from utils import save_model
 
-import matplotlib.pyplot as plt
 
 torch.manual_seed(42)
 
@@ -95,7 +93,6 @@ class trainMDNLSTM(nn.Module):
         )
 
         self.optimizer = torch.optim.Adam(self.mdn.parameters(), lr=1e-4)
-        # self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, patience=5)
 
     def collate_fn(self, batch):
         obs = [elem.observations for elem in batch]
@@ -201,7 +198,7 @@ class trainMDNLSTM(nn.Module):
             self.mdn.load_state_dict(checkpoint["model_state_dict"])
             s = checkpoint["epoch"]
             self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-            logging.info("Models loaded from checkpoint")
+            logging.info("Models loaded from {checkpoint_path}")
 
         for epoch in tqdm(
             iterable=range(s, self.epochs), desc="Epochs", leave=False, unit="epoch"
@@ -224,20 +221,3 @@ class trainMDNLSTM(nn.Module):
         self.test()
 
         return self.mdn
-
-
-# if __name__ == "__main__":
-#     train = trainMDNLSTM(
-#         dataset_path="dataset",
-#         vae_model_path="vae.pt",
-#         mdn_model_path="mdn_lstm",
-#         latent_dim=32,
-#         action_dim=3,
-#         hidden_dim=256,
-#         num_gaussians=5,
-#         batch_size=32,
-#         epochs=10,
-#         episodes=100,
-#         block_size=10,
-#     )
-#     train.train_model()
